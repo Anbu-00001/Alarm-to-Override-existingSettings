@@ -358,6 +358,23 @@ class WaListenerService : NotificationListenerService() {
                             flags
                         )
 
+                        // Create PendingIntent for STOP ALARM action button
+                        val stopAlarmIntent = Intent(applicationContext, StopAlarmReceiver::class.java).apply {
+                            action = StopAlarmReceiver.ACTION_STOP_ALARM
+                            putExtra(StopAlarmReceiver.EXTRA_NOTIFICATION_ID, sbn.id + 1000)
+                        }
+                        val stopFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                        } else {
+                            PendingIntent.FLAG_UPDATE_CURRENT
+                        }
+                        val stopAlarmPendingIntent = PendingIntent.getBroadcast(
+                            applicationContext,
+                            sbn.id + 200,
+                            stopAlarmIntent,
+                            stopFlags
+                        )
+
                         val alertNotification = NotificationCompat.Builder(applicationContext, ALARM_ALERT_CHANNEL_ID)
                             .setContentTitle("🚨 ZAlarm: " + targetContact.name)
                             .setContentText(parsed.message)
@@ -365,7 +382,10 @@ class WaListenerService : NotificationListenerService() {
                             .setPriority(NotificationCompat.PRIORITY_MAX)
                             .setCategory(NotificationCompat.CATEGORY_ALARM)
                             .setFullScreenIntent(fullScreenPendingIntent, true)
-                            .setAutoCancel(true)
+                            .setOngoing(true) // Keep in notification shade until stopped
+                            .setAutoCancel(false) // Do not dismiss on click
+                            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "🔇 STOP ALARM", stopAlarmPendingIntent)
+                            .setContentIntent(fullScreenPendingIntent)
                             .build()
 
                         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

@@ -96,6 +96,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- Stop Alarm Receiver (notification dismiss action) -->
+        <receiver
+            android:name=".service.StopAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.walarm.app.ACTION_STOP_ALARM" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
