@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.NotificationListenerService.RankingMap
 import android.service.notification.StatusBarNotification
@@ -139,15 +140,28 @@ class WaListenerService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val packageName = sbn.packageName
-        if (packageName != "com.whatsapp" && packageName != "com.whatsapp.w4b") {
+        if (packageName != "com.whatsapp" && 
+            packageName != "com.whatsapp.w4b" && 
+            packageName != "com.android.shell") {
             return
         }
 
         // Cache the notification for replies
         notificationsMap[sbn.key] = sbn
 
+        // Acquire WakeLock synchronously to keep CPU awake for coroutine execution
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "zalarm:notification_posted_wakelock")
+        try {
+            wakeLock.acquire(15000L) // 15 seconds timeout max
+            Log.d(TAG, "Sync WakeLock acquired for ${sbn.key}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to acquire sync WakeLock", e)
+        }
+
         serviceScope.launch {
-            val parsed = NotificationParser.parse(sbn) ?: return@launch
+            try {
+                val parsed = NotificationParser.parse(sbn) ?: return@launch
             
             // Check database to see if we match a WatchedContact
             val contactDao = database.contactDao()
@@ -399,6 +413,16 @@ class WaListenerService : NotificationListenerService() {
                             Log.e(TAG, "Failed starting activity directly from background", e)
                         }
                     }
+                }
+            }
+            } finally {
+                try {
+                    if (wakeLock.isHeld) {
+                        wakeLock.release()
+                        Log.d(TAG, "Sync WakeLock released for ${sbn.key}")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to release sync WakeLock", e)
                 }
             }
         }

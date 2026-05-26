@@ -4,6 +4,8 @@ import android.app.KeyguardManager
 import android.content.Context
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -25,14 +27,31 @@ class AlarmActivity : ComponentActivity() {
             setTurnScreenOn(true)
             val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
             keyguardManager.requestDismissKeyguard(this, null)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        }
+        
+        // Also add window flags for maximum compatibility across OEMs
+        @Suppress("DEPRECATION")
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+        )
+
+        // Force the screen physically ON using PowerManager wake lock with ACQUIRE_CAUSES_WAKEUP
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val screenLock = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                PowerManager.ON_AFTER_RELEASE,
+                "zalarm:screen_wakeup_wakelock"
             )
+            screenLock.acquire(3000L) // Wakes up screen for 3 seconds, window flags keep it on
+            Log.d("AlarmActivity", "Physically woke up the screen via WakeLock")
+        } catch (e: Exception) {
+            Log.e("AlarmActivity", "Failed to acquire screen wakeup lock", e)
         }
 
         val contactName = intent.getStringExtra("contact_name") ?: "VIP Contact"
