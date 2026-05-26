@@ -152,13 +152,27 @@ class WaListenerService : NotificationListenerService() {
             val contactDao = database.contactDao()
             val debugLogDao = database.debugLogDao()
             
-            // Query matches:
-            // 1. Direct match by parsed sender (could be contact name or group name)
-            // 2. Direct match by individual sender (if group)
+            // Multi-tier matching:
+            // Tier 1: Exact match by parsed sender (contact name for DM, group name for groups)
+            // Tier 2: Fuzzy/contains match by parsed sender
+            // Tier 3: Exact match by individual sender (for group chats)
+            // Tier 4: Fuzzy/contains match by individual sender (for group chats)
             var matchedContact = contactDao.getContactByName(parsed.sender)
+            Log.d(TAG, "Tier 1 exact match for '${parsed.sender}': ${matchedContact?.name ?: "NONE"}")
+            
+            if (matchedContact == null) {
+                matchedContact = contactDao.getContactByNameFuzzy(parsed.sender)
+                Log.d(TAG, "Tier 2 fuzzy match for '${parsed.sender}': ${matchedContact?.name ?: "NONE"}")
+            }
             
             if (matchedContact == null && parsed.isGroup && parsed.individualSender != null) {
                 matchedContact = contactDao.getContactByName(parsed.individualSender)
+                Log.d(TAG, "Tier 3 exact match for individual '${parsed.individualSender}': ${matchedContact?.name ?: "NONE"}")
+                
+                if (matchedContact == null) {
+                    matchedContact = contactDao.getContactByNameFuzzy(parsed.individualSender)
+                    Log.d(TAG, "Tier 4 fuzzy match for individual '${parsed.individualSender}': ${matchedContact?.name ?: "NONE"}")
+                }
             }
 
             // If we still don't have a contact, let's load all contacts and check for keyword filters
@@ -214,7 +228,8 @@ class WaListenerService : NotificationListenerService() {
                 matched = isTriggered,
                 parsedSender = parsed.sender,
                 parsedMessage = parsed.message,
-                isGroupChat = parsed.isGroup
+                isGroupChat = parsed.isGroup,
+                individualSender = parsed.individualSender
             )
             debugLogDao.insertLog(debugLog)
 

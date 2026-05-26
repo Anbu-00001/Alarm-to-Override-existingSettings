@@ -19,6 +19,9 @@ interface ContactDao {
     @Query("SELECT * FROM watched_contacts WHERE LOWER(name) = LOWER(:name) LIMIT 1")
     suspend fun getContactByName(name: String): WatchedContact?
 
+    @Query("SELECT * FROM watched_contacts WHERE LOWER(:name) LIKE '%' || LOWER(name) || '%' OR LOWER(name) LIKE '%' || LOWER(:name) || '%' LIMIT 1")
+    suspend fun getContactByNameFuzzy(name: String): WatchedContact?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertContact(contact: WatchedContact): Long
 

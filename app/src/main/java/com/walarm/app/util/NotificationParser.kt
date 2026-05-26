@@ -1,9 +1,13 @@
 package com.walarm.app.util
 
 import android.app.Notification
+import android.os.Build
 import android.service.notification.StatusBarNotification
+import android.util.Log
 
 object NotificationParser {
+    private const val TAG = "NotificationParser"
+
     data class ParsedNotification(
         val sender: String, // Contact or Group Name
         val message: String, // Message body
@@ -24,43 +28,74 @@ object NotificationParser {
         val rawSubText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
         val rawConversationTitle = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
         
+        // Also try MessagingStyle for modern WhatsApp versions
+        val messagingStyleSender = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val messages = Notification.MessagingStyle.Message.getMessagesFromBundleArray(
+                    extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+                )
+                messages?.lastOrNull()?.senderPerson?.name?.toString()
+            } else null
+        } catch (e: Exception) { null }
+
         if (rawTitle.isNullOrEmpty()) return null
 
-        var messageText = rawText ?: ""
-        var individualSender: String? = null
+        Log.d(TAG, "Raw: title=$rawTitle | text=$rawText | subText=$rawSubText | convTitle=$rawConversationTitle | msgStyleSender=$messagingStyleSender")
 
-        // Detect if group chat using official Android API, conversation title presence, or subtext comparison
-        var isGroup = extras.getBoolean("android.isGroupConversation", false) ||
-                      !rawConversationTitle.isNullOrEmpty() || 
+        // Step 1: Determine if this is a group conversation
+        val isGroupFlag = extras.getBoolean("android.isGroupConversation", false)
+        val hasConversationTitle = !rawConversationTitle.isNullOrEmpty()
+        
+        // If EXTRA_CONVERSATION_TITLE is present, it's almost certainly a group chat.
+        // The isGroupConversation flag is also reliable.
+        // SubText != Title can also indicate a group on older WhatsApp versions.
+        val isGroup = isGroupFlag || hasConversationTitle ||
                       (rawSubText != null && rawSubText.isNotEmpty() && rawTitle != rawSubText)
         
-        // WhatsApp group message text is typically prefixed with "Sender Name: Message Body"
-        val colonIndex = messageText.indexOf(": ")
-        if (colonIndex > 0 && colonIndex < 35) { // reasonable sender name length
-            isGroup = true
-            individualSender = messageText.substring(0, colonIndex).trim()
-            messageText = messageText.substring(colonIndex + 2)
-        }
+        var messageText = rawText ?: ""
+        var individualSender: String? = null
+        var groupName: String? = null
 
-        val groupName = if (isGroup) {
-            rawConversationTitle ?: rawTitle
-        } else {
-            null
-        }
-        
-        if (isGroup && individualSender == null && groupName != null) {
-            // Check if title is different from groupName, representing the sender
-            if (rawTitle != groupName) {
+        if (isGroup) {
+            // For groups: rawConversationTitle or rawTitle is the group name
+            groupName = rawConversationTitle ?: rawTitle
+            
+            // The individual sender can come from multiple sources:
+            // 1. MessagingStyle sender (most reliable on modern Android)
+            // 2. The "SenderName: Message" pattern in rawText
+            // 3. rawTitle if it differs from groupName
+            
+            individualSender = messagingStyleSender
+            
+            if (individualSender == null) {
+                // WhatsApp formats group messages as "SenderName: actual message" in EXTRA_TEXT
+                val colonIndex = messageText.indexOf(": ")
+                if (colonIndex > 0 && colonIndex < 40) {
+                    val candidateSender = messageText.substring(0, colonIndex).trim()
+                    // Validate: sender name should not look like a message fragment
+                    // It should be relatively short and not contain typical message patterns
+                    if (candidateSender.length <= 35 && !candidateSender.contains("http")) {
+                        individualSender = candidateSender
+                        messageText = messageText.substring(colonIndex + 2)
+                    }
+                }
+            }
+            
+            if (individualSender == null && rawTitle != groupName) {
                 individualSender = rawTitle
             }
+        } else {
+            // For direct chats: rawTitle IS the sender name. 
+            // Do NOT apply colon-splitting to direct messages!
         }
 
-        // The primary sender name is the chat title (could be contact name or group name)
         val sender = if (isGroup) {
             groupName ?: rawTitle
         } else {
             rawTitle
         }
+
+        Log.d(TAG, "Parsed: sender=$sender | group=$groupName | individualSender=$individualSender | isGroup=$isGroup | message=$messageText")
 
         return ParsedNotification(
             sender = sender.trim(),

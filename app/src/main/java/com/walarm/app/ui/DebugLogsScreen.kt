@@ -217,6 +217,9 @@ fun LogCard(
                 if (!log.conversationTitle.isNullOrEmpty()) {
                     Text("Raw Conv Title: ${log.conversationTitle}", color = Color.Gray, fontSize = 11.sp)
                 }
+                if (log.isGroupChat) {
+                    Text("Group: YES | Individual: ${log.individualSender ?: "unknown"}", color = Color(0xFFFFD60A), fontSize = 11.sp)
+                }
             }
 
             // Quick Add action

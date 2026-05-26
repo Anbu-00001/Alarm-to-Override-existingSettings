@@ -15,5 +15,6 @@ data class DebugLog(
     val matched: Boolean,
     val parsedSender: String?,
     val parsedMessage: String?,
-    val isGroupChat: Boolean
+    val isGroupChat: Boolean,
+    val individualSender: String? = null
 )
