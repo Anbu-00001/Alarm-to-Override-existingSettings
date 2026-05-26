@@ -49,8 +49,19 @@ object NotificationParser {
         // If EXTRA_CONVERSATION_TITLE is present, it's almost certainly a group chat.
         // The isGroupConversation flag is also reliable.
         // SubText != Title can also indicate a group on older WhatsApp versions.
-        val isGroup = isGroupFlag || hasConversationTitle ||
+        var isGroup = isGroupFlag || hasConversationTitle ||
                       (rawSubText != null && rawSubText.isNotEmpty() && rawTitle != rawSubText)
+
+        // Fallback for summary group notifications: if rawText contains "Name: Message", treat as group
+        if (!isGroup && !rawText.isNullOrEmpty()) {
+            val colonIndex = rawText.indexOf(": ")
+            if (colonIndex > 0 && colonIndex < 40) {
+                val candidateSender = rawText.substring(0, colonIndex).trim()
+                if (candidateSender.length <= 35 && !candidateSender.contains("http")) {
+                    isGroup = true
+                }
+            }
+        }
         
         var messageText = rawText ?: ""
         var individualSender: String? = null

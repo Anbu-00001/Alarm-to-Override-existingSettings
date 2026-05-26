@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
+import android.service.notification.NotificationListenerService.RankingMap
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -405,17 +406,22 @@ class WaListenerService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         notificationsMap.remove(sbn.key)
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification, rankingMap: RankingMap, reason: Int) {
+        notificationsMap.remove(sbn.key)
         if (sbn.key == activeTriggerKey) {
-            Log.i(TAG, "Active triggering notification removed. Stopping alarm...")
-            AlarmPlayer.stop()
-            activeTriggerKey = null
-            
-            // Clear the alert notification
-            try {
-                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                notificationManager.cancel(sbn.id + 1000)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to cancel full screen alert notification", e)
+            Log.d(TAG, "Active triggering notification removed: reason=$reason")
+            // 8 = REASON_USER_STOPPED (swipe away)
+            // 1 = REASON_CLICK (clicked)
+            // 3 = REASON_CANCEL_ALL (cleared all)
+            val isUserDismissed = reason == 8 || reason == 1 || reason == 3
+            if (isUserDismissed) {
+                Log.i(TAG, "Active triggering notification dismissed by user. Stopping alarm...")
+                AlarmPlayer.stop()
+                activeTriggerKey = null
+            } else {
+                Log.d(TAG, "Active triggering notification removed programmatically (reason $reason). Alarm kept playing.")
             }
         }
     }
