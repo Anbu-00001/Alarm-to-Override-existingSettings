@@ -1,0 +1,13 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+build/
+.DS_Store
+/capture
+.externalNativeBuild
+.cxx
+/Z_Alarm.apk
+/build_log.txt
+.kotlin

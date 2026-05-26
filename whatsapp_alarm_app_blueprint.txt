@@ -1,0 +1,386 @@
+================================================================================
+  WHATSAPP PRIORITY ALARM APP — BUILD BLUEPRINT
+  Research-backed. Agentic-coding ready. Android-first.
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 1 — FEASIBILITY VERDICT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+YES — this is fully buildable on Android. No root needed. No Play Store needed
+for sideloading your personal APK.
+
+iOS verdict: NOT feasible without root/jailbreak. iOS sandboxing prevents any
+third-party app from reading another app's notifications in real time. Stick to
+Android.
+
+Complexity rating: LOW-MEDIUM. The Android API for this (NotificationListenerService)
+is officially documented. The hard parts are battery optimization edge cases and
+DND bypass, both of which are solvable.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 2 — WHY EXISTING SOLUTIONS FAIL (REAL USER PAIN POINTS)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+These are actively reported bugs in 2024–2025, not old issues:
+
+1. WHATSAPP'S OWN CUSTOM RINGTONE FEATURE IS BROKEN ON MANY DEVICES
+   - Samsung S24 Ultra users (Nov 2025): WhatsApp ignores custom ringtones and
+     plays the system default. WhatsApp acknowledged it as a bug on their side.
+   - Samsung OneUI 6 / 6.1: WhatsApp calls play notification tone on loop
+     instead of the proper ringtone stream. Still unresolved as of late 2024.
+   - The fix: WhatsApp reads from Android notification channels, but OEM skins
+     (Samsung, OnePlus, Xiaomi) override channel-level sound settings with their
+     own audio routing layer. Your app bypasses this entirely.
+
+2. WHATSAPP'S SETTING DOESN'T PERSIST
+   - Multiple users report that custom notification sounds revert to default
+     after app updates or OS updates. No "OK/Save" button confirmation causes
+     silent failures.
+
+3. SYSTEM-LEVEL SOUND PRIORITY CONFLICTS
+   - On several OnePlus and Nokia devices, the system default notification
+     sound has higher audio priority than per-app settings. WhatsApp's channel
+     loses the fight.
+
+4. DO NOT DISTURB BYPASS IS INCONSISTENT
+   - WhatsApp marks itself as a "priority" app, but DND behavior differs
+     per OEM. A missed WhatsApp call from a critical contact during DND is a
+     real, common complaint.
+
+5. NO ALARM-LEVEL VOLUME FOR MESSAGES
+   - WhatsApp messages use the notification audio stream, which is often lower
+     volume than the alarm stream. If someone needs to be woken up by a message
+     from a specific contact, there is no native way to do this.
+
+6. GROUP NOTIFICATIONS ARE POORLY DIFFERENTIATED
+   - WhatsApp groups all show as "WhatsApp" in system notifications. There is
+     no way at the OS level to assign different sounds to different groups or
+     contacts unless you go inside WhatsApp's own settings — which is buggy
+     (see point 1).
+
+YOUR APP SOLVES ALL SIX OF THESE by operating at the notification intercept
+layer, not the WhatsApp settings layer.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 3 — TECH STACK (COMPACT, AGENTIC-CODING FRIENDLY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Language:       Kotlin (Android-native)
+Min SDK:        API 26 (Android 8.0) — covers 95%+ of active devices
+Target SDK:     API 34 (Android 14)
+Build:          Gradle + Android Studio (or just Claude Code in terminal)
+
+Core libraries:
+  - NotificationListenerService   (Android SDK built-in — zero dependencies)
+  - MediaPlayer / AudioManager    (Android SDK built-in)
+  - Room DB (AndroidX)            (store watchlist of contacts/groups)
+  - WorkManager (AndroidX)        (keep service alive, battery-safe)
+  - DataStore Preferences         (user settings persistence)
+
+UI:
+  - Jetpack Compose               (modern, fast to build with AI coding)
+
+No backend needed. 100% local. No server, no login, no cloud.
+
+File size estimate: under 8 MB APK.
+
+Why NOT Flutter/React Native:
+  NotificationListenerService is a deeply Android-specific service that
+  requires tight lifecycle management. Native Kotlin is the path of least
+  resistance. Flutter can wrap it but adds complexity with no benefit here.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 4 — HOW IT WORKS (CORE MECHANISM)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 1: Register NotificationListenerService
+  - User grants "Notification Access" permission once in Android Settings.
+  - Your service receives a callback on EVERY notification posted on the device.
+
+STEP 2: Filter by WhatsApp package
+  - Package name: com.whatsapp (standard) or com.whatsapp.w4b (Business)
+  - Check: sbn.packageName == "com.whatsapp"
+
+STEP 3: Extract sender name
+  - From notification extras:
+      val title = sbn.notification.extras.getString(Notification.EXTRA_TITLE)
+  - For individual chats: title = contact name (e.g., "Amma")
+  - For group chats: title = group name (e.g., "Family Group")
+  - For group messages: EXTRA_TITLE = group name, EXTRA_SUB_TEXT = sender name
+
+STEP 4: Match against your watchlist
+  - Room DB table: WatchedContact(name: String, ringtonePath: String, useAlarmVolume: Boolean)
+  - Fuzzy match or exact match (configurable)
+
+STEP 5: Fire alarm
+  - Use AudioManager to set stream to STREAM_ALARM (bypasses notification volume)
+  - Use MediaPlayer to play your chosen ringtone file
+  - Optionally: suppress WhatsApp's own notification sound first via
+    NotificationListenerService.cancelNotification() then repost silently
+
+STEP 6: Dismiss
+  - Screen tap or volume button cancels playback
+  - Auto-cancel after N seconds (configurable)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 5 — PERMISSIONS NEEDED (ALL STANDARD, NO ROOT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+In AndroidManifest.xml:
+  <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"/>
+  <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+
+Key user-granted permissions (shown in UI):
+  1. Notification Access (Settings > Notification Access)  — MANDATORY
+  2. Battery optimization exemption                         — MANDATORY
+  3. Storage access (for picking custom ringtone from files)
+
+None of these are "dangerous" Play Store permissions. All are grantable via
+standard Android settings screens.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 6 — KNOWN HARD PROBLEMS & HOW TO SOLVE THEM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PROBLEM A: SERVICE GETS KILLED BY BATTERY OPTIMIZATION
+  Symptom: App stops detecting notifications after 30–60 min on Xiaomi/OPPO/Vivo.
+  Fix:
+    - Request IGNORE_BATTERY_OPTIMIZATIONS in onboarding flow
+    - Run NotificationListenerService as a foreground service with a
+      persistent silent notification
+    - Pair with a WorkManager periodic task (every 15 min) that checks if
+      the service is alive and restarts it if needed
+    - On first launch, deep-link user directly to their OEM's battery
+      settings screen (Xiaomi has its own, OPPO has its own — maintain a
+      lookup table of OEM package names for this screen)
+
+PROBLEM B: DO NOT DISTURB BLOCKS YOUR ALARM SOUND
+  Fix:
+    - Request NotificationManager.canBypassDnd() — if false, prompt user
+      to add your app to DND exceptions
+    - Use STREAM_ALARM instead of STREAM_NOTIFICATION — alarm stream
+      is not affected by DND on most devices
+    - As a fallback, use AudioManager.requestAudioFocus() with
+      AUDIOFOCUS_GAIN_TRANSIENT to ensure your sound plays over others
+
+PROBLEM C: NOTIFICATION TITLE FORMAT CHANGES ACROSS WHATSAPP VERSIONS
+  Symptom: An update to WhatsApp changes how sender names appear in extras.
+  Fix:
+    - Check both EXTRA_TITLE and EXTRA_TEXT and EXTRA_SUB_TEXT
+    - Store matched contact names in lowercase + trimmed for resilience
+    - Log unmatched notification titles to a local debug log so user can
+      see exactly what string WhatsApp is sending and add it manually
+
+PROBLEM D: MULTIPLE RAPID MESSAGES FROM SAME PERSON
+  Symptom: Ringtone fires 5 times in 3 seconds for a person who sends
+  staggered messages.
+  Fix:
+    - Implement a per-contact cooldown (default: 30 seconds)
+    - Store last-triggered timestamp per contact in Room DB
+    - Only re-trigger if cooldown has elapsed
+
+PROBLEM E: ENCRYPTED NOTIFICATIONS (WHATSAPP NOTIFICATION PREVIEW OFF)
+  Symptom: If user has "Show notification content" turned OFF in WhatsApp,
+  EXTRA_TITLE shows "WhatsApp" and EXTRA_TEXT shows "1 new message" — no
+  sender name.
+  Fix (partial):
+    - Detect this case and show a warning in your app's UI
+    - Prompt user to enable "Show notification content" in WhatsApp settings
+    - Cannot be worked around at the code level — this is intentional by
+      WhatsApp when preview is disabled
+  Note: Most users have previews ON by default. This affects a minority.
+
+PROBLEM F: WHATSAPP BUSINESS ACCOUNTS
+  - Package name: com.whatsapp.w4b
+  - Watch both packages in your filter. Add a toggle in UI for WA Business.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 7 — TWEAKS OVER EXISTING PLAYSTORE APPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Apps like "WA Ringtone" and "NotifCon" do parts of this but have these gaps
+your app fills:
+
+TWEAK 1 — ALARM STREAM OVERRIDE
+  Existing apps play on notification volume. Yours plays on alarm volume
+  (louder, not muted by silent mode unless "total silence" DND is active).
+  Add a toggle: "Use alarm volume" per contact.
+
+TWEAK 2 — ESCALATING ALARM
+  If the user doesn't dismiss within 10 seconds, volume increases every 5
+  seconds up to max. Nobody else does this.
+
+TWEAK 3 — REPEAT UNTIL DISMISSED (ALARM MODE)
+  For VIP contacts, loop the ringtone until the user physically dismisses
+  it. WhatsApp's built-in notification plays once and stops.
+
+TWEAK 4 — TIME-AWARE RULES
+  Contact A triggers loud alarm only between 9am–11pm.
+  Contact A during midnight–9am triggers a soft buzz only.
+  This is a schedule overlay per contact. No existing app does this well.
+
+TWEAK 5 — KEYWORD TRIGGER
+  Not just "who sent it" but "what did they say."
+  If a message from a group contains words like "urgent", "help", "call me",
+  override to alarm mode even if the contact is not in VIP list.
+  (NotificationListenerService gives you EXTRA_TEXT = message content)
+
+TWEAK 6 — CONTACT PHOTO ON FULL-SCREEN OVERLAY
+  When the alarm fires, show a full-screen overlay (like an incoming call)
+  with the contact's name and photo, plus a Dismiss button. Android's
+  USE_FULL_SCREEN_INTENT permission enables this.
+
+TWEAK 7 — ONBOARDING THAT ACTUALLY WORKS
+  The #1 reason users abandon these apps is the multi-step setup.
+  Guide users through each permission with illustrated steps and
+  deep-link directly to the correct settings screen — no manual navigation.
+
+TWEAK 8 — OEM BATTERY EXEMPTION WIZARD
+  Detect device manufacturer at runtime and show manufacturer-specific
+  instructions (Xiaomi: AutoStart, OPPO: Battery Saver exceptions,
+  Huawei: Protected Apps). This alone makes your app more reliable than
+  most alternatives.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 8 — REVOLUTIONARY IDEAS (NOT YET IMPLEMENTED ANYWHERE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IDEA 1 — URGENCY SCORING VIA ON-DEVICE NLP
+  What it is:
+    Run a tiny on-device language model (Google's ML Kit Text Classification
+    or a quantized TFLite model under 5 MB) on the message text from the
+    notification. Score the message 0–100 for urgency based on words,
+    punctuation, exclamation marks, and short phrases like "come now" or
+    "emergency."
+  How to implement:
+    - Use ML Kit's Smart Reply model or a custom TFLite text classifier
+      trained on urgency signals
+    - If urgency score > threshold (user configurable), escalate to
+      full alarm even from non-VIP contacts
+    - Works offline, zero latency, no privacy risk
+  Why it's revolutionary:
+    No app today alarms based on WHAT was said, only WHO said it.
+
+IDEA 2 — PRESENCE-AWARE ALARM SUPPRESSION
+  What it is:
+    If your phone is connected to your home Wi-Fi OR your smartwatch
+    detects you're actively using it (wrist motion, screen on), suppress
+    the alarm and just vibrate. Only full-alarm when you're likely not
+    looking at your phone.
+  How to implement:
+    - WifiManager to detect home SSID (registered by user)
+    - CompanionDeviceManager to detect connected Wear OS / Galaxy Watch
+    - BroadcastReceiver for screen-on/screen-off state
+    - Combine signals into a "likely paying attention" boolean
+  Why it's revolutionary:
+    Smart context-aware notification systems exist in enterprise tools
+    (Slack has a "I'm active" suppressor) but nothing does it at the
+    OS/cross-app layer for incoming messages.
+
+IDEA 3 — BIDIRECTIONAL ACKNOWLEDGMENT
+  What it is:
+    When the alarm fires, show two quick-reply buttons on the lock screen
+    overlay: "On my way" and "5 min." Tapping sends that WhatsApp message
+    back to the contact automatically via WhatsApp's URL scheme.
+  How to implement:
+    - Android RemoteInput API (same mechanism notification quick-replies use)
+    - WhatsApp supports deep links: whatsapp://send?phone=XXXXXXXX&text=MSG
+    - Or use NotificationListenerService's replyToNotification() if
+      WhatsApp's notification includes a RemoteInput action (it does for
+      most message notifications)
+  Why it's revolutionary:
+    The alarm becomes a two-way communication tool. You dismiss AND respond
+    in one gesture from the lock screen.
+
+IDEA 4 — GROUP CONTEXT DETECTION
+  What it is:
+    WhatsApp group names are often opaque ("Family", "Work", "Colony").
+    Let the user tag groups by context (Family / Work / Emergency). When
+    a message matches a keyword within an Emergency-tagged group, escalate
+    to alarm mode regardless of sender.
+  How to implement:
+    - Store group name + context tag in Room DB
+    - Combine with Idea 1 (urgency NLP) for double-signal triggering
+  Why it's useful:
+    A message from an unknown group member that says "accident" should
+    still wake you up if that group is tagged as Family.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 9 — MINIMUM VIABLE APP (WHAT TO BUILD FIRST)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+MVP scope (get this working before anything else):
+
+  1. NotificationListenerService that reads WhatsApp notifications
+  2. UI to add contact/group names to a watchlist
+  3. UI to pick a ringtone file from device storage per watchlist entry
+  4. Alarm fires on match using STREAM_ALARM
+  5. Cooldown timer (30 seconds) between repeated triggers
+  6. Foreground service with persistent notification to stay alive
+  7. Permission onboarding wizard (Notification Access + Battery Exemption)
+
+Estimated build time with AI-assisted coding: 1–2 focused sessions.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 10 — FILE STRUCTURE (TELL YOUR AI CODER TO BUILD THIS)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+app/
+├── src/main/
+│   ├── AndroidManifest.xml          (all permissions + service declarations)
+│   ├── java/.../
+│   │   ├── service/
+│   │   │   └── WaListenerService.kt  (NotificationListenerService impl)
+│   │   ├── alarm/
+│   │   │   └── AlarmPlayer.kt        (MediaPlayer + AudioManager logic)
+│   │   ├── data/
+│   │   │   ├── WatchedContact.kt     (Room entity)
+│   │   │   ├── ContactDao.kt         (Room DAO)
+│   │   │   └── AppDatabase.kt        (Room database)
+│   │   ├── ui/
+│   │   │   ├── MainActivity.kt       (Compose host)
+│   │   │   ├── WatchlistScreen.kt    (list + add contacts)
+│   │   │   ├── OnboardingScreen.kt   (permission wizard)
+│   │   │   └── AlarmOverlay.kt       (full-screen lock-screen UI)
+│   │   └── util/
+│   │       ├── OemBatteryHelper.kt   (OEM-specific battery settings deeplinks)
+│   │       └── NotificationParser.kt (extract title/text from WA notification)
+│   └── res/
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 11 — PLAYSTORE ALTERNATIVES (IF YOU DECIDE NOT TO BUILD)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Notif Log — Notification History" — closest to what you want but no alarm
+"BuzzKill" — notification rules engine, no alarm-stream override
+"MacroDroid" — macro automation, can trigger sounds but complex setup
+"Tasker" — most powerful, but steep learning curve and paid
+
+NONE of the above do:
+  - Alarm-stream volume (wakes you up from silent mode)
+  - Repeat-until-dismissed for messages
+  - Urgency NLP scoring
+  - Full-screen overlay on message
+
+Build it. It's a 2-session project with Claude Code.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  END OF DOCUMENT
+  Generated: May 2026 | For personal Android use
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
