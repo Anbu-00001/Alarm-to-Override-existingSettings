@@ -44,6 +44,7 @@ class WaListenerService : NotificationListenerService() {
         private const val SERVICE_NOTIFICATION_ID = 9901
         private const val FOREGROUND_CHANNEL_ID = "zalarm_service_channel"
         private const val SILENT_POST_CHANNEL_ID = "zalarm_silent_reposts"
+        private const val ALARM_ALERT_CHANNEL_ID = "zalarm_alerts"
 
         private var isServiceRunning = false
         private val notificationsMap = mutableMapOf<String, StatusBarNotification>()
@@ -318,7 +319,7 @@ class WaListenerService : NotificationListenerService() {
                         AlarmPlayer.play(applicationContext, targetContact)
                         activeTriggerKey = sbn.key
                         
-                        // Launch Lock-screen Full Screen Activity
+                        // Launch Lock-screen Full Screen Activity via Full-Screen Intent Notification (handles locked screens on Android 10+)
                         val overlayIntent = Intent(applicationContext, AlarmActivity::class.java).apply {
                             putExtra("contact_name", targetContact.name)
                             putExtra("message_body", parsed.message)
@@ -329,7 +330,38 @@ class WaListenerService : NotificationListenerService() {
                                       Intent.FLAG_ACTIVITY_CLEAR_TOP or 
                                       Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         }
-                        startActivity(overlayIntent)
+
+                        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                        } else {
+                            PendingIntent.FLAG_UPDATE_CURRENT
+                        }
+                        val fullScreenPendingIntent = PendingIntent.getActivity(
+                            applicationContext,
+                            sbn.id + 100,
+                            overlayIntent,
+                            flags
+                        )
+
+                        val alertNotification = NotificationCompat.Builder(applicationContext, ALARM_ALERT_CHANNEL_ID)
+                            .setContentTitle("🚨 ZAlarm: " + targetContact.name)
+                            .setContentText(parsed.message)
+                            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                            .setPriority(NotificationCompat.PRIORITY_MAX)
+                            .setCategory(NotificationCompat.CATEGORY_ALARM)
+                            .setFullScreenIntent(fullScreenPendingIntent, true)
+                            .setAutoCancel(true)
+                            .build()
+
+                        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        notificationManager.notify(sbn.id + 1000, alertNotification)
+
+                        // Launch lockscreen activity directly as backup fallback
+                        try {
+                            startActivity(overlayIntent)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed starting activity directly from background", e)
+                        }
                     }
                 }
             }
@@ -342,6 +374,14 @@ class WaListenerService : NotificationListenerService() {
             Log.i(TAG, "Active triggering notification removed. Stopping alarm...")
             AlarmPlayer.stop()
             activeTriggerKey = null
+            
+            // Clear the alert notification
+            try {
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.cancel(sbn.id + 1000)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to cancel full screen alert notification", e)
+            }
         }
     }
 
@@ -437,6 +477,20 @@ class WaListenerService : NotificationListenerService() {
                 enableLights(false)
             }
             notificationManager.createNotificationChannel(repostChannel)
+
+            // 3. Alarm Alert channel
+            val alertChannel = NotificationChannel(
+                ALARM_ALERT_CHANNEL_ID,
+                "ZAlarm Priority Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "High priority alarms that bypass DND and show overlays"
+                enableLights(true)
+                lightColor = android.graphics.Color.RED
+                enableVibration(true)
+                setSound(null, null)
+            }
+            notificationManager.createNotificationChannel(alertChannel)
         }
     }
 }

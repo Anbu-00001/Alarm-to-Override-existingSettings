@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.os.VibrationEffect
+import android.os.PowerManager
 import android.util.Log
 import com.walarm.app.data.WatchedContact
 import kotlinx.coroutines.*
@@ -25,11 +26,23 @@ object AlarmPlayer {
     private var appContext: Context? = null
     private var originalRingerMode: Int? = null
     private var originalInterruptionFilter: Int? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     fun play(context: Context, contact: WatchedContact) {
         stop()
         appContext = context.applicationContext
         Log.d(TAG, "Playing alarm for contact: ${contact.name}")
+
+        // Acquire CPU WakeLock so that alarm can play while screen is off
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "zalarm:alarm_player_wakelock").apply {
+                acquire(10 * 60 * 1000L) // 10 minutes timeout max
+            }
+            Log.i(TAG, "WakeLock acquired")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to acquire WakeLock", e)
+        }
 
         // 1. DND and Silent Mode Overrides
         try {
@@ -105,8 +118,8 @@ object AlarmPlayer {
                 setAudioAttributes(audioAttributes)
                 isLooping = contact.repeatUntilDismissed
                 
-                // If escalating volume, start low, else full
-                val initialVol = if (contact.escalatingVolume) 0.1f else 1.0f
+                // If escalating volume, start at 50%, else full
+                val initialVol = if (contact.escalatingVolume) 0.5f else 1.0f
                 setVolume(initialVol, initialVol)
 
                 prepare()
@@ -130,10 +143,10 @@ object AlarmPlayer {
         volumeJob?.cancel()
         volumeJob = playerScope.launch {
             delay(10000) // Wait 10 seconds before starting escalation
-            var currentVol = 0.1f
+            var currentVol = 0.5f
             while (currentVol < 1.0f && mediaPlayer != null) {
                 delay(5000) // Increase every 5 seconds
-                currentVol = (currentVol + 0.2f).coerceAtMost(1.0f)
+                currentVol = (currentVol + 0.1f).coerceAtMost(1.0f)
                 try {
                     mediaPlayer?.setVolume(currentVol, currentVol)
                 } catch (e: Exception) {
@@ -201,6 +214,18 @@ object AlarmPlayer {
             originalRingerMode = null
             originalInterruptionFilter = null
             appContext = null
+            
+            // Release WakeLock safely
+            try {
+                if (wakeLock?.isHeld == true) {
+                    wakeLock?.release()
+                    Log.i(TAG, "WakeLock released")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error releasing WakeLock", e)
+            } finally {
+                wakeLock = null
+            }
         }
 
         try {

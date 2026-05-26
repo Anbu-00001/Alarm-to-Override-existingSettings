@@ -26,30 +26,32 @@ object NotificationParser {
         
         if (rawTitle.isNullOrEmpty()) return null
 
-        // Detect if group chat
-        val isGroup = !rawConversationTitle.isNullOrEmpty() || 
+        var messageText = rawText ?: ""
+        var individualSender: String? = null
+
+        // Detect if group chat using official Android API, conversation title presence, or subtext comparison
+        var isGroup = extras.getBoolean("android.isGroupConversation", false) ||
+                      !rawConversationTitle.isNullOrEmpty() || 
                       (rawSubText != null && rawSubText.isNotEmpty() && rawTitle != rawSubText)
         
+        // WhatsApp group message text is typically prefixed with "Sender Name: Message Body"
+        val colonIndex = messageText.indexOf(": ")
+        if (colonIndex > 0 && colonIndex < 35) { // reasonable sender name length
+            isGroup = true
+            individualSender = messageText.substring(0, colonIndex).trim()
+            messageText = messageText.substring(colonIndex + 2)
+        }
+
         val groupName = if (isGroup) {
             rawConversationTitle ?: rawTitle
         } else {
             null
         }
-
-        var messageText = rawText ?: ""
-        var individualSender: String? = null
         
-        if (isGroup && groupName != null) {
-            // Check if the message text starts with "Name: Message"
-            val colonIndex = messageText.indexOf(": ")
-            if (colonIndex > 0 && colonIndex < 35) { // reasonable sender name length
-                individualSender = messageText.substring(0, colonIndex).trim()
-                messageText = messageText.substring(colonIndex + 2)
-            } else {
-                // Check if title is different from groupName, representing the sender
-                if (rawTitle != groupName) {
-                    individualSender = rawTitle
-                }
+        if (isGroup && individualSender == null && groupName != null) {
+            // Check if title is different from groupName, representing the sender
+            if (rawTitle != groupName) {
+                individualSender = rawTitle
             }
         }
 
