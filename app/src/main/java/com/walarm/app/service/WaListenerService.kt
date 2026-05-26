@@ -265,10 +265,10 @@ class WaListenerService : NotificationListenerService() {
             val screenInteractive = PresenceHelper.isScreenInteractive(applicationContext)
             
             // Settings for presence
-            val suppressOnScreenOn = preferences[booleanPreferencesKey("suppress_screen_on")] ?: true
+            val suppressOnScreenOn = preferences[booleanPreferencesKey("suppress_screen_on")] ?: false
             val suppressOnWifi = preferences[booleanPreferencesKey("suppress_wifi")] ?: false
             val homeWifiSsid = preferences[stringPreferencesKey("home_wifi_ssid")] ?: ""
-            val suppressOnWearable = preferences[booleanPreferencesKey("suppress_wearable")] ?: true
+            val suppressOnWearable = preferences[booleanPreferencesKey("suppress_wearable")] ?: false
 
             var shouldSuppressAlarmSound = false
 

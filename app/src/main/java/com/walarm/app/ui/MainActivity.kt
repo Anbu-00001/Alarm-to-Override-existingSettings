@@ -176,14 +176,14 @@ fun DashboardScreen(database: AppDatabase) {
         .collectAsState(initial = true)
     val overrideWaCalls by context.dataStore.data.map { it[booleanPreferencesKey("override_wa_calls")] ?: true }
         .collectAsState(initial = true)
-    val suppressScreenOn by context.dataStore.data.map { it[booleanPreferencesKey("suppress_screen_on")] ?: true }
-        .collectAsState(initial = true)
+    val suppressScreenOn by context.dataStore.data.map { it[booleanPreferencesKey("suppress_screen_on")] ?: false }
+        .collectAsState(initial = false)
     val suppressWifi by context.dataStore.data.map { it[booleanPreferencesKey("suppress_wifi")] ?: false }
         .collectAsState(initial = false)
     val homeWifiSsid by context.dataStore.data.map { it[stringPreferencesKey("home_wifi_ssid")] ?: "" }
         .collectAsState(initial = "")
-    val suppressWearable by context.dataStore.data.map { it[booleanPreferencesKey("suppress_wearable")] ?: true }
-        .collectAsState(initial = true)
+    val suppressWearable by context.dataStore.data.map { it[booleanPreferencesKey("suppress_wearable")] ?: false }
+        .collectAsState(initial = false)
 
     Scaffold(
         topBar = {

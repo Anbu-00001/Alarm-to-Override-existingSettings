@@ -27,8 +27,11 @@ object AlarmPlayer {
     private var originalRingerMode: Int? = null
     private var originalInterruptionFilter: Int? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    
+    private var originalStreamType: Int? = null
+    private var originalSystemVolume: Int? = null
 
-    fun play(context: Context, contact: WatchedContact) {
+    fun play(context: Context, contact: WatchedContact) = synchronized(this) {
         stop()
         appContext = context.applicationContext
         Log.d(TAG, "Playing alarm for contact: ${contact.name}")
@@ -82,12 +85,15 @@ object AlarmPlayer {
                     }
                 }
 
-                // Set stream volume to high level (80% of max)
+                // Set stream volume to high level (80% of max) and backup original
                 val streamType = if (contact.useAlarmVolume) AudioManager.STREAM_ALARM else AudioManager.STREAM_NOTIFICATION
+                originalStreamType = streamType
+                originalSystemVolume = audioManager.getStreamVolume(streamType)
+                
                 val maxVolume = audioManager.getStreamMaxVolume(streamType)
                 val targetVolume = (maxVolume * 0.8).toInt().coerceAtLeast(1)
                 audioManager.setStreamVolume(streamType, targetVolume, 0)
-                Log.d(TAG, "Bypass volume set to $targetVolume / $maxVolume")
+                Log.d(TAG, "Bypass volume set to $targetVolume / $maxVolume (original: $originalSystemVolume)")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error overriding ringer or DND modes", e)
@@ -181,11 +187,11 @@ object AlarmPlayer {
         }
     }
 
-    fun stop() {
+    fun stop() = synchronized(this) {
         volumeJob?.cancel()
         volumeJob = null
 
-        // Restore original ringer mode & DND filter
+        // Restore original ringer mode, system volumes, & DND filter
         try {
             appContext?.let { ctx ->
                 val audioManager = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -207,12 +213,22 @@ object AlarmPlayer {
                         }
                     }
                 }
+
+                // Restore stream volume
+                originalSystemVolume?.let { vol ->
+                    originalStreamType?.let { stream ->
+                        audioManager.setStreamVolume(stream, vol, 0)
+                        Log.i(TAG, "System stream volume restored to: $vol")
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error restoring original ringer or DND modes", e)
         } finally {
             originalRingerMode = null
             originalInterruptionFilter = null
+            originalStreamType = null
+            originalSystemVolume = null
             appContext = null
             
             // Release WakeLock safely
@@ -250,4 +266,3 @@ object AlarmPlayer {
         }
     }
 }
-
