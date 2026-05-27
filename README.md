@@ -49,10 +49,10 @@ This diagram shows how external WhatsApp notifications flow through ZAlarm's int
 ```mermaid
 graph TD
     %% Styling
-    classDef external fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef core fill:#bbf,stroke:#333,stroke-width:2px;
-    classDef storage fill:#fdf,stroke:#333,stroke-width:2px;
-    classDef helper fill:#bfb,stroke:#333,stroke-width:2px;
+    classDef external fill:#b30000,stroke:#ff3333,stroke-width:2px,color:#ffffff;
+    classDef core fill:#2c1b4d,stroke:#7b2cbf,stroke-width:2px,color:#ffffff;
+    classDef storage fill:#0f3057,stroke:#00587a,stroke-width:2px,color:#ffffff;
+    classDef helper fill:#1b4332,stroke:#40916c,stroke-width:2px,color:#ffffff;
 
     %% Components
     WA[WhatsApp Notification]:::external
@@ -98,6 +98,7 @@ graph TD
 This sequence diagram explains the execution flow from the moment an Android system notification is posted down to the validation, presence checks, and alarm routing.
 
 ```mermaid
+%%{init: { 'theme': 'dark' } }%%
 sequenceDiagram
     autonumber
     actor WA as WhatsApp
@@ -147,6 +148,7 @@ sequenceDiagram
 This diagram demonstrates how the automated python testing suite (`test_device.py`) interfaces with ADB, locks the screen, manipulates the SQLite database on the device, injects test notifications, and uses a reliable polling routine to verify complete E2E system behavior.
 
 ```mermaid
+%%{init: { 'theme': 'dark' } }%%
 sequenceDiagram
     autonumber
     participant Py as test_device.py (Python Host)
