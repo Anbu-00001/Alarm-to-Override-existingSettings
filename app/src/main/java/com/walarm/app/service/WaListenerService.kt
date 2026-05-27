@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.os.PowerManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.NotificationListenerService.RankingMap
@@ -119,26 +120,53 @@ class WaListenerService : NotificationListenerService() {
         isServiceRunning = true
         createNotificationChannels()
         startForegroundService()
+        Log.i(TAG, "WaListenerService.onCreate() — service created")
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // START_STICKY ensures the OS restarts this service if it's killed
+        Log.d(TAG, "onStartCommand called (flags=$flags, startId=$startId)")
+        return START_STICKY
     }
 
     override fun onDestroy() {
         super.onDestroy()
         isServiceRunning = false
+        Log.w(TAG, "WaListenerService.onDestroy() — requesting immediate rebind")
+        // Immediately request rebind when destroyed
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                requestRebind(
+                    android.content.ComponentName(this, WaListenerService::class.java)
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to request rebind on destroy", e)
+        }
     }
 
     override fun onListenerConnected() {
         super.onListenerConnected()
         isServiceRunning = true
+        HeartbeatReceiver.lastNotificationTimestamp = System.currentTimeMillis()
         Log.i(TAG, "Notification Listener connected successfully")
+
+        // Schedule Doze-resistant heartbeats whenever we connect/reconnect
+        HeartbeatReceiver.scheduleHeartbeats(applicationContext)
+        Log.i(TAG, "Heartbeat alarms (re)scheduled from onListenerConnected")
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         isServiceRunning = false
-        Log.w(TAG, "Notification Listener disconnected")
+        Log.w(TAG, "Notification Listener disconnected — will rely on heartbeat for rebind")
+        // Don't cancel heartbeats here — they're our lifeline to get re-bound
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        // Update heartbeat liveness tracker for EVERY notification (proves NLS is alive)
+        HeartbeatReceiver.lastNotificationTimestamp = System.currentTimeMillis()
+
         val packageName = sbn.packageName
         if (packageName != "com.whatsapp" && 
             packageName != "com.whatsapp.w4b" && 

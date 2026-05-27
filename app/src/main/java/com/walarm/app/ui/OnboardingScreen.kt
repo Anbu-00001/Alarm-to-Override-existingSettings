@@ -202,6 +202,102 @@ fun OnboardingScreen(
                 }
             )
 
+            // OPPO/OnePlus/Realme HANS Freeze Bypass Card
+            val isOplusDevice = remember {
+                val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+                manufacturer.contains("oppo") || manufacturer.contains("oneplus") || manufacturer.contains("realme")
+            }
+            if (isOplusDevice) {
+                var isOplusConfigured by remember { mutableStateOf(false) }
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            width = 1.dp,
+                            color = if (isOplusConfigured) Color(0xFF34C759).copy(alpha = 0.5f) else Color(0xFFFFCC00).copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(16.dp)
+                        ),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color.White.copy(alpha = 0.04f)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "⚠️ OPPO/OnePlus App Freezing",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isOplusConfigured) Color(0xFF34C759).copy(alpha = 0.2f) else Color(0xFFFFCC00).copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = if (isOplusConfigured) " CONFIGURED " else " ATTENTION REQUIRED ",
+                                    color = if (isOplusConfigured) Color(0xFF34C759) else Color(0xFFFFCC00),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "OPPO/OnePlus/Realme devices use an aggressive background freezer (HANS) which suspends the app 20-30 seconds after locking the screen.\n\nTo prevent this, you MUST manually enable background run:\n\n1. Tap 'Configure App Details' below.\n2. Tap 'Battery usage' (or 'Battery').\n3. Enable 'Allow background activity' and 'Allow auto-launch'.",
+                            color = Color.LightGray,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (!isOplusConfigured) {
+                                TextButton(
+                                    onClick = { isOplusConfigured = true },
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) {
+                                    Text("I've Done This", color = Color.LightGray)
+                                }
+                            }
+                            
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFCC00)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(
+                                    text = "Configure App Details",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // STEP 3 CARD: Post Notifications
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 PermissionCard(

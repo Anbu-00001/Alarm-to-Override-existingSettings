@@ -27,6 +27,10 @@ class BootReceiver : BroadcastReceiver() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error rebinding listener service on boot", e)
             }
+
+            // Schedule Doze-resistant heartbeats on boot so they survive reboots
+            HeartbeatReceiver.scheduleHeartbeats(context)
+            Log.i(TAG, "Heartbeat alarms scheduled from BootReceiver")
         }
     }
 }

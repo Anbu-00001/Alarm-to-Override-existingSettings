@@ -12,6 +12,10 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     
+    <!-- Exact alarm permission for Doze-resistant heartbeat (Android 12+) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    
     <!-- Android 13+ Notification Permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -68,6 +72,7 @@
             android:name=".service.WaListenerService"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true"
+            android:stopWithTask="false"
             android:foregroundServiceType="specialUse">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
@@ -102,6 +107,16 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.walarm.app.ACTION_STOP_ALARM" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Doze-Resistant Heartbeat Receiver (AlarmManager keepalive) -->
+        <receiver
+            android:name=".service.HeartbeatReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.walarm.app.HEARTBEAT_ALARM_CLOCK" />
+                <action android:name="com.walarm.app.HEARTBEAT_EXACT" />
             </intent-filter>
         </receiver>
 
