@@ -298,6 +298,102 @@ fun OnboardingScreen(
                 }
             }
 
+            // Samsung Deep Sleep / One UI Restriction Bypass Card
+            val isSamsungDevice = remember {
+                val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+                manufacturer.contains("samsung")
+            }
+            if (isSamsungDevice) {
+                var isSamsungConfigured by remember { mutableStateOf(false) }
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            width = 1.dp,
+                            color = if (isSamsungConfigured) Color(0xFF34C759).copy(alpha = 0.5f) else Color(0xFFFFCC00).copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(16.dp)
+                        ),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color.White.copy(alpha = 0.04f)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "⚠️ Samsung Background Optimization",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSamsungConfigured) Color(0xFF34C759).copy(alpha = 0.2f) else Color(0xFFFFCC00).copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = if (isSamsungConfigured) " CONFIGURED " else " ATTENTION REQUIRED ",
+                                    color = if (isSamsungConfigured) Color(0xFF34C759) else Color(0xFFFFCC00),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Samsung One UI (Galaxy F15 and others) aggressively suspends background apps and places them into 'Deep Sleep' when the screen is locked.\n\nTo prevent missing alarms, you MUST set battery limit to 'Unrestricted':\n\n1. Tap 'Configure App Details' below.\n2. Tap 'Battery'.\n3. Select 'Unrestricted' (change from Optimized).\n4. In Samsung Settings -> Device Care -> Battery -> Background usage limits, verify ZAlarm is NOT in Sleeping or Deep Sleeping apps.",
+                            color = Color.LightGray,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (!isSamsungConfigured) {
+                                TextButton(
+                                    onClick = { isSamsungConfigured = true },
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) {
+                                    Text("I've Done This", color = Color.LightGray)
+                                }
+                            }
+                            
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFCC00)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(
+                                    text = "Configure App Details",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // STEP 3 CARD: Post Notifications
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 PermissionCard(
