@@ -11,3 +11,5 @@ build/
 /Z_Alarm.apk
 /build_log.txt
 .kotlin
+*.jks
+.claude/
