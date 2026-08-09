@@ -98,5 +98,8 @@ dependencies {
     // DataStore Preferences
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
+    // Unit tests for the pure logic in `domain` and `util`
+    testImplementation("junit:junit:4.13.2")
+
     // Core library desugaring if needed, but not strictly necessary for API 26+
 }

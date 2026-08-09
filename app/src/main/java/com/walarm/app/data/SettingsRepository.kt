@@ -75,31 +75,17 @@ object SettingsRepository {
         suppressOnWearable = this[Keys.SUPPRESS_WEARABLE] ?: defaults.suppressOnWearable
     )
 
-    suspend fun setNlpEnabled(context: Context, value: Boolean) =
-        edit(context) { it[Keys.NLP_ENABLED] = value }
-
-    suspend fun setNlpThreshold(context: Context, value: Int) =
-        edit(context) { it[Keys.NLP_THRESHOLD] = value.coerceIn(0, 100) }
-
-    suspend fun setOverridePhoneCalls(context: Context, value: Boolean) =
-        edit(context) { it[Keys.OVERRIDE_PHONE_CALLS] = value }
-
-    suspend fun setOverrideWaCalls(context: Context, value: Boolean) =
-        edit(context) { it[Keys.OVERRIDE_WA_CALLS] = value }
-
-    suspend fun setSuppressOnScreenOn(context: Context, value: Boolean) =
-        edit(context) { it[Keys.SUPPRESS_SCREEN_ON] = value }
-
-    suspend fun setSuppressOnHomeWifi(context: Context, value: Boolean) =
-        edit(context) { it[Keys.SUPPRESS_WIFI] = value }
-
-    suspend fun setHomeWifiSsid(context: Context, value: String) =
-        edit(context) { it[Keys.HOME_WIFI_SSID] = value }
-
-    suspend fun setSuppressOnWearable(context: Context, value: Boolean) =
-        edit(context) { it[Keys.SUPPRESS_WEARABLE] = value }
-
-    private suspend fun edit(context: Context, mutate: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
-        context.dataStore.edit(mutate)
+    /** Persists a whole snapshot in one atomic DataStore transaction. */
+    suspend fun save(context: Context, settings: AppSettings) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.NLP_ENABLED] = settings.nlpEnabled
+            prefs[Keys.NLP_THRESHOLD] = settings.nlpThreshold.coerceIn(0, 100)
+            prefs[Keys.OVERRIDE_PHONE_CALLS] = settings.overridePhoneCalls
+            prefs[Keys.OVERRIDE_WA_CALLS] = settings.overrideWaCalls
+            prefs[Keys.SUPPRESS_SCREEN_ON] = settings.suppressOnScreenOn
+            prefs[Keys.SUPPRESS_WIFI] = settings.suppressOnHomeWifi
+            prefs[Keys.HOME_WIFI_SSID] = settings.homeWifiSsid
+            prefs[Keys.SUPPRESS_WEARABLE] = settings.suppressOnWearable
+        }
     }
 }

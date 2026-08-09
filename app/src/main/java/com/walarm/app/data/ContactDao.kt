@@ -19,7 +19,24 @@ interface ContactDao {
     @Query("SELECT * FROM watched_contacts WHERE LOWER(name) = LOWER(:name) LIMIT 1")
     suspend fun getContactByName(name: String): WatchedContact?
 
-    @Query("SELECT * FROM watched_contacts WHERE LOWER(:name) LIKE '%' || LOWER(name) || '%' OR LOWER(name) LIKE '%' || LOWER(:name) || '%' LIMIT 1")
+    /**
+     * Substring match in either direction, used when an exact name lookup misses.
+     *
+     * The `LENGTH(name) >= 3` guard matters: without it a watchlist entry named "Al"
+     * matches every sender containing "al" — "Ronald", "Alice", "Natalie" — and turns
+     * the whole watchlist into a catch-all. Short names still match exactly.
+     * Longest entry first so the most specific watchlist name wins.
+     */
+    @Query(
+        """
+        SELECT * FROM watched_contacts
+        WHERE LENGTH(name) >= 3
+          AND (LOWER(:name) LIKE '%' || LOWER(name) || '%'
+               OR LOWER(name) LIKE '%' || LOWER(:name) || '%')
+        ORDER BY LENGTH(name) DESC
+        LIMIT 1
+        """
+    )
     suspend fun getContactByNameFuzzy(name: String): WatchedContact?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

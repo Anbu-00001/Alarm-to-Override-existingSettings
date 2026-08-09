@@ -11,20 +11,26 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun debugLogDao(): DebugLogDao
 
     companion object {
+        private const val DATABASE_NAME = "zalarm_database"
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
+                INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "zalarm_database"
+                    DATABASE_NAME
                 )
-                .fallbackToDestructiveMigration()
-                .build()
-                INSTANCE = instance
-                instance
+                    // Scoped to the pre-release schemas only. A blanket
+                    // fallbackToDestructiveMigration() silently wipes the user's entire
+                    // watchlist on any future schema bump — for an app whose whole job is
+                    // to alarm on specific people, that is a silent, total failure.
+                    // Future versions must ship a real Migration instead.
+                    .fallbackToDestructiveMigrationFrom(1, 2)
+                    .build()
+                    .also { INSTANCE = it }
             }
         }
     }

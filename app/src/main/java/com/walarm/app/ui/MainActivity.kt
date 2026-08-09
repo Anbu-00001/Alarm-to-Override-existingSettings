@@ -8,30 +8,42 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
-import androidx.compose.runtime.*
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.walarm.app.data.AppDatabase
-import com.walarm.app.data.WatchedContact
+import com.walarm.app.data.AppSettings
+import com.walarm.app.data.SettingsRepository
 import com.walarm.app.service.HeartbeatReceiver
 import com.walarm.app.service.ServiceRestartWorker
-import com.walarm.app.data.dataStore
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
@@ -41,108 +53,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         database = AppDatabase.getDatabase(this)
-        
-        // Primary: Schedule Doze-resistant AlarmManager heartbeats
+
+        // Primary keepalive: Doze-resistant AlarmManager heartbeats.
         HeartbeatReceiver.scheduleHeartbeats(this)
-        
-        // Secondary: Keep WorkManager watchdog as a backup layer
+        // Backup keepalive: a WorkManager watchdog for when the app is in the foreground.
         scheduleServiceWatchdog()
 
         setContent {
-            var isPermissionsGranted by remember { mutableStateOf(false) }
-            val context = LocalContext.current
+            ZAlarmTheme {
+                // Re-checked on every ON_RESUME, so returning from the system settings
+                // screens swaps onboarding for the dashboard automatically. The previous
+                // version called setContent() again from onResume(), which threw away and
+                // rebuilt the entire composition (and its scroll/tab state) each time.
+                val permissionsGranted = rememberCorePermissionsGranted()
 
-            // Check permissions in real-time or when app starts
-            fun verifyPermissions() {
-                val enabledListeners = Settings.Secure.getString(
-                    context.contentResolver,
-                    "enabled_notification_listeners"
-                )
-                val notifGranted = enabledListeners?.contains(context.packageName) == true
-                
-                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-                val batteryGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    pm.isIgnoringBatteryOptimizations(context.packageName)
+                if (permissionsGranted) {
+                    DashboardScreen(database = database)
                 } else {
-                    true
-                }
-                
-                isPermissionsGranted = notifGranted && batteryGranted
-            }
-
-            LaunchedEffect(Unit) {
-                verifyPermissions()
-            }
-
-            // Also check when window gains focus (user returned from settings)
-            DisposableEffect(Unit) {
-                verifyPermissions()
-                onDispose {}
-            }
-
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    background = Color(0xFF0C091A),
-                    surface = Color(0xFF130D2B),
-                    primary = Color(0xFF985EFF),
-                    secondary = Color(0xFF007AFF)
-                )
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0C091A)
-                ) {
-                    if (isPermissionsGranted) {
-                        DashboardScreen(database = database)
-                    } else {
-                        OnboardingScreen(
-                            onFinished = {
-                                verifyPermissions()
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Re-check permissions when returning to activity
-        lifecycleScope.launch {
-            val enabledListeners = Settings.Secure.getString(
-                contentResolver,
-                "enabled_notification_listeners"
-            )
-            val notifGranted = enabledListeners?.contains(packageName) == true
-            
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            val batteryGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                pm.isIgnoringBatteryOptimizations(packageName)
-            } else {
-                true
-            }
-            
-            if (notifGranted && batteryGranted) {
-                // Ensure UI updates if permissions were granted
-                setContent {
-                    MaterialTheme(
-                        colorScheme = darkColorScheme(
-                            background = Color(0xFF0C091A),
-                            surface = Color(0xFF130D2B),
-                            primary = Color(0xFF985EFF),
-                            secondary = Color(0xFF007AFF)
-                        )
-                    ) {
-                        Surface(
-                            modifier = Modifier.fillMaxSize(),
-                            color = Color(0xFF0C091A)
-                        ) {
-                            DashboardScreen(database = database)
-                        }
-                    }
+                    OnboardingScreen(onFinished = { /* ON_RESUME re-check drives the switch */ })
                 }
             }
         }
@@ -150,15 +80,55 @@ class MainActivity : ComponentActivity() {
 
     private fun scheduleServiceWatchdog() {
         val workRequest = PeriodicWorkRequestBuilder<ServiceRestartWorker>(
-            15, TimeUnit.MINUTES
+            WATCHDOG_INTERVAL_MINUTES, TimeUnit.MINUTES
         ).build()
-        
+
         WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
-            "ZAlarmServiceRestartWork",
+            WATCHDOG_WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             workRequest
         )
     }
+
+    private companion object {
+        const val WATCHDOG_WORK_NAME = "ZAlarmServiceRestartWork"
+        const val WATCHDOG_INTERVAL_MINUTES = 15L
+    }
+}
+
+/**
+ * True when ZAlarm has the two permissions it genuinely cannot work without:
+ * notification-listener access and a battery-optimisation exemption.
+ */
+private fun corePermissionsGranted(context: Context): Boolean {
+    val enabledListeners = Settings.Secure.getString(
+        context.contentResolver,
+        "enabled_notification_listeners"
+    )
+    val listenerGranted = enabledListeners?.contains(context.packageName) == true
+
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    val batteryExempt = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+
+    return listenerGranted && batteryExempt
+}
+
+/** Permission state that refreshes itself whenever the activity resumes. */
+@Composable
+private fun rememberCorePermissionsGranted(): Boolean {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var granted by remember { mutableStateOf(corePermissionsGranted(context)) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) granted = corePermissionsGranted(context)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    return granted
 }
 
 @Composable
@@ -167,33 +137,15 @@ fun DashboardScreen(database: AppDatabase) {
     val coroutineScope = rememberCoroutineScope()
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Read DB Flows
     val contacts by database.contactDao().getAllContactsFlow().collectAsState(initial = emptyList())
     val logs by database.debugLogDao().getRecentLogsFlow().collectAsState(initial = emptyList())
-
-    // Read DataStore Settings
-    val nlpEnabled by context.dataStore.data.map { it[booleanPreferencesKey("nlp_enabled")] ?: true }
-        .collectAsState(initial = true)
-    val nlpThreshold by context.dataStore.data.map { it[intPreferencesKey("nlp_threshold")] ?: 50 }
-        .collectAsState(initial = 50)
-    val overridePhoneCalls by context.dataStore.data.map { it[booleanPreferencesKey("override_phone_calls")] ?: true }
-        .collectAsState(initial = true)
-    val overrideWaCalls by context.dataStore.data.map { it[booleanPreferencesKey("override_wa_calls")] ?: true }
-        .collectAsState(initial = true)
-    val suppressScreenOn by context.dataStore.data.map { it[booleanPreferencesKey("suppress_screen_on")] ?: false }
-        .collectAsState(initial = false)
-    val suppressWifi by context.dataStore.data.map { it[booleanPreferencesKey("suppress_wifi")] ?: false }
-        .collectAsState(initial = false)
-    val homeWifiSsid by context.dataStore.data.map { it[stringPreferencesKey("home_wifi_ssid")] ?: "" }
-        .collectAsState(initial = "")
-    val suppressWearable by context.dataStore.data.map { it[booleanPreferencesKey("suppress_wearable")] ?: false }
-        .collectAsState(initial = false)
+    val settings by SettingsRepository.flow(context).collectAsState(initial = AppSettings())
 
     Scaffold(
         topBar = {
             Column(
                 modifier = Modifier
-                    .background(Color(0xFF130D2B))
+                    .background(ZAlarmColors.Surface)
                     .padding(horizontal = 16.dp)
                     .padding(top = 16.dp)
             ) {
@@ -203,7 +155,7 @@ fun DashboardScreen(database: AppDatabase) {
                     fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
-                
+
                 TabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = Color.Transparent,
@@ -211,25 +163,17 @@ fun DashboardScreen(database: AppDatabase) {
                     indicator = { tabPositions ->
                         TabRowDefaults.SecondaryIndicator(
                             modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                            color = Color(0xFF985EFF)
+                            color = ZAlarmColors.Primary
                         )
                     }
                 ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("Watchlist", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("Captured Logs", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
-                    )
-                    Tab(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        text = { Text("Settings", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
-                    )
+                    DASHBOARD_TABS.forEachIndexed { index, title ->
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = { Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                        )
+                    }
                 }
             }
         }
@@ -238,7 +182,7 @@ fun DashboardScreen(database: AppDatabase) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(Color(0xFF0C091A))
+                .background(ZAlarmColors.Background)
         ) {
             when (selectedTab) {
                 0 -> WatchlistScreen(
@@ -253,6 +197,7 @@ fun DashboardScreen(database: AppDatabase) {
                         coroutineScope.launch { database.contactDao().deleteContact(contact) }
                     }
                 )
+
                 1 -> DebugLogsScreen(
                     logs = logs,
                     onClearLogs = {
@@ -262,57 +207,16 @@ fun DashboardScreen(database: AppDatabase) {
                         coroutineScope.launch { database.contactDao().insertContact(contact) }
                     }
                 )
+
                 2 -> GlobalSettingsScreen(
-                    nlpEnabled = nlpEnabled,
-                    onNlpEnabledChanged = { value ->
-                        coroutineScope.launch {
-                            context.dataStore.edit { it[booleanPreferencesKey("nlp_enabled")] = value }
-                        }
-                    },
-                    nlpThreshold = nlpThreshold,
-                    onNlpThresholdChanged = { value ->
-                        coroutineScope.launch {
-                            context.dataStore.edit { it[intPreferencesKey("nlp_threshold")] = value }
-                        }
-                    },
-                    overridePhoneCalls = overridePhoneCalls,
-                    onOverridePhoneCallsChanged = { value ->
-                        coroutineScope.launch {
-                            context.dataStore.edit { it[booleanPreferencesKey("override_phone_calls")] = value }
-                        }
-                    },
-                    overrideWaCalls = overrideWaCalls,
-                    onOverrideWaCallsChanged = { value ->
-                        coroutineScope.launch {
-                            context.dataStore.edit { it[booleanPreferencesKey("override_wa_calls")] = value }
-                        }
-                    },
-                    suppressScreenOn = suppressScreenOn,
-                    onSuppressScreenOnChanged = { value ->
-                        coroutineScope.launch {
-                            context.dataStore.edit { it[booleanPreferencesKey("suppress_screen_on")] = value }
-                        }
-                    },
-                    suppressWifi = suppressWifi,
-                    onSuppressWifiChanged = { value ->
-                        coroutineScope.launch {
-                            context.dataStore.edit { it[booleanPreferencesKey("suppress_wifi")] = value }
-                        }
-                    },
-                    homeWifiSsid = homeWifiSsid,
-                    onHomeWifiSsidChanged = { value ->
-                        coroutineScope.launch {
-                            context.dataStore.edit { it[stringPreferencesKey("home_wifi_ssid")] = value }
-                        }
-                    },
-                    suppressWearable = suppressWearable,
-                    onSuppressWearableChanged = { value ->
-                        coroutineScope.launch {
-                            context.dataStore.edit { it[booleanPreferencesKey("suppress_wearable")] = value }
-                        }
+                    settings = settings,
+                    onSettingsChange = { updated ->
+                        coroutineScope.launch { SettingsRepository.save(context, updated) }
                     }
                 )
             }
         }
     }
 }
+
+private val DASHBOARD_TABS = listOf("Watchlist", "Captured Logs", "Settings")

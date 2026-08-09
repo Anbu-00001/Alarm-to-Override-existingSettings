@@ -6,225 +6,212 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.Build
+import android.content.pm.PackageManager
 import android.os.PowerManager
 import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.util.Log
+import com.walarm.app.ui.MainActivity
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * HeartbeatReceiver — Doze-resistant keepalive for NotificationListenerService.
+ * HeartbeatReceiver — Doze-resistant keepalive for [WaListenerService].
  *
- * Android Doze mode (entered ~2 minutes after screen-off on many OEMs) suspends
- * WorkManager jobs, defers PARTIAL_WAKE_LOCKs, and can unbind the NLS entirely.
+ * Android Doze (entered ~2 minutes after screen-off on many OEMs) suspends WorkManager
+ * jobs, defers PARTIAL_WAKE_LOCKs, and can unbind the notification listener entirely.
  *
- * This receiver uses AlarmManager.setAlarmClock() — the ONLY API guaranteed to
- * fire during deep Doze — to periodically verify that WaListenerService is still
- * bound and receiving notifications. If the NLS appears to have been unbound,
- * it forces a requestRebind().
- *
- * Two-tier scheduling:
- *   Tier 1: setAlarmClock()                 → fires every ~14 min (guaranteed in Doze)
- *   Tier 2: setExactAndAllowWhileIdle()     → fires every ~4 min (best-effort in Doze)
+ * Two tiers of one-shot alarms, each re-armed when it fires:
+ *   Tier 1: setAlarmClock()             → ~14 min, the only API guaranteed to fire in Doze.
+ *   Tier 2: setExactAndAllowWhileIdle() → ~4 min, best-effort rapid check.
  */
 class HeartbeatReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "HeartbeatReceiver"
 
-        // Action constants
         const val ACTION_HEARTBEAT_ALARM_CLOCK = "com.walarm.app.HEARTBEAT_ALARM_CLOCK"
         const val ACTION_HEARTBEAT_EXACT = "com.walarm.app.HEARTBEAT_EXACT"
 
-        // Intervals
-        private const val ALARM_CLOCK_INTERVAL_MS = 14 * 60 * 1000L   // 14 minutes
-        private const val EXACT_ALARM_INTERVAL_MS = 4 * 60 * 1000L    // 4 minutes
+        private const val ALARM_CLOCK_INTERVAL_MS = 14 * 60 * 1000L
+        private const val EXACT_ALARM_INTERVAL_MS = 4 * 60 * 1000L
 
-        // Tracks last time onNotificationPosted was called (set by WaListenerService)
+        /** No listener callback for this long means the binding is a zombie. */
+        private const val ZOMBIE_THRESHOLD_MS = 10 * 60 * 1000L
+
+        private const val REQUEST_ALARM_CLOCK = 7001
+        private const val REQUEST_SHOW_INTENT = 7002
+        private const val REQUEST_EXACT = 7003
+
+        private const val WAKELOCK_TIMEOUT_MS = 10_000L
+
+        /**
+         * Component toggling is a heavy hammer: on some OEM builds it can drop the
+         * user's notification-access grant. It is only used once plain requestRebind()
+         * has demonstrably failed this many heartbeats in a row.
+         */
+        private const val TOGGLE_AFTER_CONSECUTIVE_FAILURES = 3
+
+        /** Set by [WaListenerService] on every notification callback. */
         @Volatile
         var lastNotificationTimestamp: Long = System.currentTimeMillis()
 
-        // Tracks last heartbeat execution
         @Volatile
         var lastHeartbeatTimestamp: Long = 0L
 
+        private val consecutiveRebindFailures = AtomicInteger(0)
+
         /**
-         * Schedule both tiers of heartbeat alarms. Should be called from:
-         *  - MainActivity.onCreate()
-         *  - BootReceiver.onReceive()
-         *  - WaListenerService.onListenerConnected()
+         * Arms both tiers. Safe to call repeatedly — FLAG_UPDATE_CURRENT means each call
+         * replaces the pending alarm rather than stacking a new one.
+         *
+         * Called from MainActivity.onCreate, BootReceiver and onListenerConnected.
          */
         fun scheduleHeartbeats(context: Context) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-            // ── Tier 1: setAlarmClock() — Guaranteed Doze breakthrough ──
-            val alarmClockIntent = Intent(context, HeartbeatReceiver::class.java).apply {
-                action = ACTION_HEARTBEAT_ALARM_CLOCK
-            }
-            val alarmClockPi = PendingIntent.getBroadcast(
-                context,
-                7001,
-                alarmClockIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-            )
-            // AlarmManager.AlarmClockInfo is the only alarm type that unconditionally wakes
-            // the device from Doze. The showIntent (2nd param) is what the system shows the
-            // user in the status bar — we point it at our main activity.
+            // ── Tier 1: setAlarmClock() — guaranteed Doze breakthrough ──
             val showIntent = PendingIntent.getActivity(
                 context,
-                7002,
-                Intent(context, com.walarm.app.ui.MainActivity::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                REQUEST_SHOW_INTENT,
+                Intent(context, MainActivity::class.java),
+                PENDING_INTENT_FLAGS
             )
-            val triggerAtMillis = System.currentTimeMillis() + ALARM_CLOCK_INTERVAL_MS
-            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerAtMillis, showIntent)
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(
+                System.currentTimeMillis() + ALARM_CLOCK_INTERVAL_MS,
+                showIntent
+            )
             try {
-                alarmManager.setAlarmClock(alarmClockInfo, alarmClockPi)
-                Log.i(TAG, "Tier 1 AlarmClock heartbeat scheduled at +${ALARM_CLOCK_INTERVAL_MS / 1000}s")
+                alarmManager.setAlarmClock(alarmClockInfo, heartbeatIntent(context, Tier.ALARM_CLOCK))
+                Log.i(TAG, "Tier 1 AlarmClock heartbeat armed (+${ALARM_CLOCK_INTERVAL_MS / 1000}s)")
             } catch (e: SecurityException) {
                 Log.e(TAG, "Cannot set alarm clock — SCHEDULE_EXACT_ALARM not granted?", e)
             }
 
-            // ── Tier 2: setExactAndAllowWhileIdle() — Best-effort rapid keepalive ──
-            val exactIntent = Intent(context, HeartbeatReceiver::class.java).apply {
-                action = ACTION_HEARTBEAT_EXACT
-            }
-            val exactPi = PendingIntent.getBroadcast(
-                context,
-                7003,
-                exactIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-            )
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                try {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        SystemClock.elapsedRealtime() + EXACT_ALARM_INTERVAL_MS,
-                        exactPi
-                    )
-                    Log.i(TAG, "Tier 2 exact heartbeat scheduled at +${EXACT_ALARM_INTERVAL_MS / 1000}s")
-                } catch (e: SecurityException) {
-                    Log.e(TAG, "Cannot set exact alarm", e)
-                    // Fallback to inexact
-                    alarmManager.set(
-                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        SystemClock.elapsedRealtime() + EXACT_ALARM_INTERVAL_MS,
-                        exactPi
-                    )
-                }
-            } else {
-                alarmManager.setExact(
+            // ── Tier 2: setExactAndAllowWhileIdle() — best-effort rapid keepalive ──
+            val exactPendingIntent = heartbeatIntent(context, Tier.EXACT)
+            val triggerAt = SystemClock.elapsedRealtime() + EXACT_ALARM_INTERVAL_MS
+            try {
+                alarmManager.setExactAndAllowWhileIdle(
                     AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                    SystemClock.elapsedRealtime() + EXACT_ALARM_INTERVAL_MS,
-                    exactPi
+                    triggerAt,
+                    exactPendingIntent
                 )
+                Log.i(TAG, "Tier 2 exact heartbeat armed (+${EXACT_ALARM_INTERVAL_MS / 1000}s)")
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Exact alarm denied; falling back to inexact", e)
+                alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, exactPendingIntent)
             }
+        }
+
+        fun cancelHeartbeats(context: Context) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            alarmManager.cancel(heartbeatIntent(context, Tier.ALARM_CLOCK))
+            alarmManager.cancel(heartbeatIntent(context, Tier.EXACT))
+            Log.i(TAG, "All heartbeat alarms cancelled")
+        }
+
+        private enum class Tier(val action: String, val requestCode: Int) {
+            ALARM_CLOCK(ACTION_HEARTBEAT_ALARM_CLOCK, REQUEST_ALARM_CLOCK),
+            EXACT(ACTION_HEARTBEAT_EXACT, REQUEST_EXACT)
         }
 
         /**
-         * Cancel all scheduled heartbeats (for testing or cleanup)
+         * Single source of truth for the heartbeat PendingIntents.
+         *
+         * Scheduling and cancelling used to build these separately; a PendingIntent only
+         * cancels when request code, action and flags all match, so any drift between the
+         * two copies would have left un-cancellable alarms behind.
          */
-        fun cancelHeartbeats(context: Context) {
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        private fun heartbeatIntent(context: Context, tier: Tier): PendingIntent =
+            PendingIntent.getBroadcast(
+                context,
+                tier.requestCode,
+                Intent(context, HeartbeatReceiver::class.java).setAction(tier.action),
+                PENDING_INTENT_FLAGS
+            )
 
-            val pi1 = PendingIntent.getBroadcast(
-                context, 7001,
-                Intent(context, HeartbeatReceiver::class.java).apply { action = ACTION_HEARTBEAT_ALARM_CLOCK },
-                flags
-            )
-            val pi2 = PendingIntent.getBroadcast(
-                context, 7003,
-                Intent(context, HeartbeatReceiver::class.java).apply { action = ACTION_HEARTBEAT_EXACT },
-                flags
-            )
-            alarmManager.cancel(pi1)
-            alarmManager.cancel(pi2)
-            Log.i(TAG, "All heartbeat alarms cancelled")
-        }
+        private const val PENDING_INTENT_FLAGS =
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
         Log.d(TAG, "Heartbeat received: $action")
 
-        // Acquire a short WakeLock to ensure we complete the check
-        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        val wakeLock = pm.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "zalarm:heartbeat_wakelock"
-        )
-        try {
-            wakeLock.acquire(10_000L) // 10 second timeout max
+        val wakeLock = try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "zalarm:heartbeat_wakelock").apply {
+                setReferenceCounted(false)
+                acquire(WAKELOCK_TIMEOUT_MS)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to acquire heartbeat WakeLock", e)
+            null
         }
 
         try {
             lastHeartbeatTimestamp = System.currentTimeMillis()
-
-            // Check if WaListenerService is still alive
-            if (!WaListenerService.isRunning()) {
-                Log.w(TAG, "⚠️ WaListenerService is NOT running! Forcing rebind...")
-                forceRebind(context)
-            } else {
-                // Check if notifications are actually being received
-                // If no notification callback in 10 minutes, something is wrong
-                val timeSinceLastNotification = System.currentTimeMillis() - lastNotificationTimestamp
-                if (timeSinceLastNotification > 10 * 60 * 1000L) {
-                    Log.w(TAG, "⚠️ No notification callback in ${timeSinceLastNotification / 1000}s — NLS may be zombie-bound. Forcing rebind...")
-                    forceRebind(context)
-                } else {
-                    Log.i(TAG, "✅ WaListenerService confirmed alive (last notification ${timeSinceLastNotification / 1000}s ago)")
-                }
-            }
-
-            // Re-schedule the next heartbeat (one-shot alarm pattern)
+            checkListenerHealth(context)
+            // One-shot alarms: re-arm for the next round.
             scheduleHeartbeats(context)
-
         } finally {
             try {
-                if (wakeLock.isHeld) wakeLock.release()
+                if (wakeLock?.isHeld == true) wakeLock.release()
             } catch (e: Exception) {
                 Log.e(TAG, "Error releasing heartbeat WakeLock", e)
             }
         }
     }
 
-    private fun forceRebind(context: Context) {
+    private fun checkListenerHealth(context: Context) {
+        val silentFor = System.currentTimeMillis() - lastNotificationTimestamp
+
+        val problem = when {
+            !WaListenerService.isRunning() -> "service is not running"
+            silentFor > ZOMBIE_THRESHOLD_MS -> "no callback in ${silentFor / 1000}s — zombie binding"
+            else -> null
+        }
+
+        if (problem == null) {
+            consecutiveRebindFailures.set(0)
+            Log.i(TAG, "✅ Listener healthy (last callback ${silentFor / 1000}s ago)")
+            return
+        }
+
+        val failures = consecutiveRebindFailures.incrementAndGet()
+        Log.w(TAG, "⚠️ Listener unhealthy: $problem (attempt $failures)")
+        forceRebind(context, escalate = failures >= TOGGLE_AFTER_CONSECUTIVE_FAILURES)
+    }
+
+    private fun forceRebind(context: Context, escalate: Boolean) {
+        val component = ComponentName(context, WaListenerService::class.java)
+
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                // This tells the OS to unbind and re-bind the NLS
-                NotificationListenerService.requestRebind(
-                    ComponentName(context, WaListenerService::class.java)
-                )
-                Log.i(TAG, "requestRebind() dispatched successfully")
-            }
-
-            // Also try toggling the component to force OS re-evaluation
-            val packageManager = context.packageManager
-            val componentName = ComponentName(context, WaListenerService::class.java)
-            
-            // Disable then re-enable the component
-            packageManager.setComponentEnabledSetting(
-                componentName,
-                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                android.content.pm.PackageManager.DONT_KILL_APP
-            )
-            // Small delay via Handler isn't ideal in a BroadcastReceiver, so re-enable immediately
-            packageManager.setComponentEnabledSetting(
-                componentName,
-                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                android.content.pm.PackageManager.DONT_KILL_APP
-            )
-            Log.i(TAG, "NLS component toggled (disabled then re-enabled)")
-
+            NotificationListenerService.requestRebind(component)
+            Log.i(TAG, "requestRebind() dispatched")
         } catch (e: Exception) {
-            Log.e(TAG, "Error during forceRebind", e)
+            Log.e(TAG, "requestRebind() failed", e)
+        }
+
+        if (!escalate) return
+
+        // Last resort: bounce the component so the OS re-evaluates the binding.
+        try {
+            val pm = context.packageManager
+            pm.setComponentEnabledSetting(
+                component,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP
+            )
+            pm.setComponentEnabledSetting(
+                component,
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP
+            )
+            Log.i(TAG, "NLS component bounced after $TOGGLE_AFTER_CONSECUTIVE_FAILURES failed rebinds")
+            consecutiveRebindFailures.set(0)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error bouncing NLS component", e)
         }
     }
 }

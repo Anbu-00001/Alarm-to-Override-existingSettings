@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import com.walarm.app.alarm.AlarmIntents
 import com.walarm.app.alarm.AlarmPlayer
 import com.walarm.app.service.WaListenerService
 
@@ -87,11 +88,7 @@ class AlarmActivity : ComponentActivity() {
      * Extract intent extras and render the alarm overlay Compose UI.
      */
     private fun setupAlarmContent(intent: Intent) {
-        val contactName = intent.getStringExtra("contact_name") ?: "VIP Contact"
-        val messageBody = intent.getStringExtra("message_body") ?: "Incoming Urgent Message"
-        val groupName = intent.getStringExtra("group_name")
-        val isGroup = intent.getBooleanExtra("is_group", false)
-        val sbnKey = intent.getStringExtra("sbn_key") ?: ""
+        val content = AlarmIntents.contentFrom(intent)
 
         setContent {
             MaterialTheme {
@@ -100,17 +97,21 @@ class AlarmActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     AlarmOverlay(
-                        contactName = contactName,
-                        messageBody = messageBody,
-                        groupName = groupName,
-                        isGroup = isGroup,
+                        contactName = content.contactName,
+                        messageBody = content.message,
+                        groupName = content.groupName,
+                        isGroup = content.isGroup,
                         onDismiss = {
                             AlarmPlayer.stop()
                             finish()
                         },
                         onReply = { replyText ->
-                            if (sbnKey.isNotEmpty()) {
-                                WaListenerService.replyToNotification(this@AlarmActivity, sbnKey, replyText)
+                            if (content.sbnKey.isNotEmpty()) {
+                                WaListenerService.replyToNotification(
+                                    this@AlarmActivity,
+                                    content.sbnKey,
+                                    replyText
+                                )
                             }
                             AlarmPlayer.stop()
                             finish()

@@ -17,27 +17,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.walarm.app.data.AppSettings
 import com.walarm.app.util.OemBatteryHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GlobalSettingsScreen(
-    nlpEnabled: Boolean,
-    onNlpEnabledChanged: (Boolean) -> Unit,
-    nlpThreshold: Int,
-    onNlpThresholdChanged: (Int) -> Unit,
-    overridePhoneCalls: Boolean,
-    onOverridePhoneCallsChanged: (Boolean) -> Unit,
-    overrideWaCalls: Boolean,
-    onOverrideWaCallsChanged: (Boolean) -> Unit,
-    suppressScreenOn: Boolean,
-    onSuppressScreenOnChanged: (Boolean) -> Unit,
-    suppressWifi: Boolean,
-    onSuppressWifiChanged: (Boolean) -> Unit,
-    homeWifiSsid: String,
-    onHomeWifiSsidChanged: (String) -> Unit,
-    suppressWearable: Boolean,
-    onSuppressWearableChanged: (Boolean) -> Unit
+    settings: AppSettings,
+    onSettingsChange: (AppSettings) -> Unit
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -84,19 +71,22 @@ fun GlobalSettingsScreen(
                             lineHeight = 16.sp
                         )
                     }
-                    Switch(checked = nlpEnabled, onCheckedChange = onNlpEnabledChanged)
+                    Switch(
+                        checked = settings.nlpEnabled,
+                        onCheckedChange = { onSettingsChange(settings.copy(nlpEnabled = it)) }
+                    )
                 }
 
-                if (nlpEnabled) {
+                if (settings.nlpEnabled) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Urgency Threshold: $nlpThreshold",
+                        text = "Urgency Threshold: ${settings.nlpThreshold}",
                         color = Color.LightGray,
                         fontSize = 14.sp
                     )
                     Slider(
-                        value = nlpThreshold.toFloat(),
-                        onValueChange = { onNlpThresholdChanged(it.toInt()) },
+                        value = settings.nlpThreshold.toFloat(),
+                        onValueChange = { onSettingsChange(settings.copy(nlpThreshold = it.toInt())) },
                         valueRange = 10f..90f,
                         steps = 7,
                         colors = SliderDefaults.colors(
@@ -171,7 +161,10 @@ fun GlobalSettingsScreen(
                         Text("Override WhatsApp Call Notifications", color = Color.White, fontSize = 14.sp)
                         Text("Triggers loud repeating alarm on incoming WhatsApp calls from VIPs", color = Color.Gray, fontSize = 11.sp, lineHeight = 14.sp)
                     }
-                    Switch(checked = overrideWaCalls, onCheckedChange = onOverrideWaCallsChanged)
+                    Switch(
+                        checked = settings.overrideWaCalls,
+                        onCheckedChange = { onSettingsChange(settings.copy(overrideWaCalls = it)) }
+                    )
                 }
 
                 // Phone Call Override
@@ -184,7 +177,10 @@ fun GlobalSettingsScreen(
                         Text("Override Carrier Phone Calls", color = Color.White, fontSize = 14.sp)
                         Text("Bypasses mute/DND for standard ringing incoming phone calls from VIPs", color = Color.Gray, fontSize = 11.sp, lineHeight = 14.sp)
                     }
-                    Switch(checked = overridePhoneCalls, onCheckedChange = onOverridePhoneCallsChanged)
+                    Switch(
+                        checked = settings.overridePhoneCalls,
+                        onCheckedChange = { onSettingsChange(settings.copy(overridePhoneCalls = it)) }
+                    )
                 }
 
                 if (!isDndAccessGranted) {
@@ -266,7 +262,10 @@ fun GlobalSettingsScreen(
                         Text("Suppress when Screen is On", color = Color.White, fontSize = 14.sp)
                         Text("Active phone use suppresses alarms", color = Color.Gray, fontSize = 11.sp)
                     }
-                    Switch(checked = suppressScreenOn, onCheckedChange = onSuppressScreenOnChanged)
+                    Switch(
+                        checked = settings.suppressOnScreenOn,
+                        onCheckedChange = { onSettingsChange(settings.copy(suppressOnScreenOn = it)) }
+                    )
                 }
 
                 // Wearable Switch
@@ -279,7 +278,10 @@ fun GlobalSettingsScreen(
                         Text("Suppress when Smartwatch Connected", color = Color.White, fontSize = 14.sp)
                         Text("Vibe only if paired watch is detected on Bluetooth", color = Color.Gray, fontSize = 11.sp)
                     }
-                    Switch(checked = suppressWearable, onCheckedChange = onSuppressWearableChanged)
+                    Switch(
+                        checked = settings.suppressOnWearable,
+                        onCheckedChange = { onSettingsChange(settings.copy(suppressOnWearable = it)) }
+                    )
                 }
 
                 // Wi-Fi Switch
@@ -292,13 +294,16 @@ fun GlobalSettingsScreen(
                         Text("Suppress on Home Wi-Fi Network", color = Color.White, fontSize = 14.sp)
                         Text("Mute loud alarms when connected to specific SSID", color = Color.Gray, fontSize = 11.sp)
                     }
-                    Switch(checked = suppressWifi, onCheckedChange = onSuppressWifiChanged)
+                    Switch(
+                        checked = settings.suppressOnHomeWifi,
+                        onCheckedChange = { onSettingsChange(settings.copy(suppressOnHomeWifi = it)) }
+                    )
                 }
 
-                if (suppressWifi) {
+                if (settings.suppressOnHomeWifi) {
                     OutlinedTextField(
-                        value = homeWifiSsid,
-                        onValueChange = onHomeWifiSsidChanged,
+                        value = settings.homeWifiSsid,
+                        onValueChange = { onSettingsChange(settings.copy(homeWifiSsid = it)) },
                         label = { Text("Home Wi-Fi SSID") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
