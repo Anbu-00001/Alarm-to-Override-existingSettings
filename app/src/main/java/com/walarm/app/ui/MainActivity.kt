@@ -30,7 +30,7 @@ import com.walarm.app.data.AppDatabase
 import com.walarm.app.data.WatchedContact
 import com.walarm.app.service.HeartbeatReceiver
 import com.walarm.app.service.ServiceRestartWorker
-import com.walarm.app.service.dataStore
+import com.walarm.app.data.dataStore
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit

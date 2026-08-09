@@ -7,16 +7,22 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.telephony.TelephonyManager
 import android.util.Log
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import com.walarm.app.alarm.AlarmPlayer
 import com.walarm.app.data.AppDatabase
-import com.walarm.app.data.WatchedContact
+import com.walarm.app.data.SettingsRepository
+import com.walarm.app.domain.AlarmAction
+import com.walarm.app.domain.AlarmDecision
+import com.walarm.app.domain.PresenceSnapshot
+import com.walarm.app.domain.ScheduleWindow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
+/**
+ * Escalates an incoming *cellular* call from a watchlisted contact into a full alarm,
+ * and stops the alarm once the call is answered or ends.
+ */
 class PhoneCallReceiver : BroadcastReceiver() {
 
     companion object {
@@ -27,38 +33,31 @@ class PhoneCallReceiver : BroadcastReceiver() {
         if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
 
         val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
+        @Suppress("DEPRECATION")
         val incomingNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
-
-        Log.i(TAG, "Phone State Change: $state, Number: $incomingNumber")
+        Log.i(TAG, "Phone state: $state")
 
         val pendingResult = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
-                // Check if global Phone Call override is enabled
-                val overrideEnabled = context.dataStore.data.map { 
-                    it[booleanPreferencesKey("override_phone_calls")] ?: true 
-                }.first()
-
-                if (!overrideEnabled) {
-                    Log.d(TAG, "Phone call override disabled in settings.")
-                    return@launch
-                }
-
                 when (state) {
                     TelephonyManager.EXTRA_STATE_RINGING -> {
-                        if (!incomingNumber.isNullOrEmpty()) {
-                            handleRingingCall(context, incomingNumber)
+                        if (!SettingsRepository.current(context).overridePhoneCalls) {
+                            Log.d(TAG, "Phone call override disabled in settings")
+                            return@launch
                         }
+                        if (!incomingNumber.isNullOrEmpty()) handleRingingCall(context, incomingNumber)
                     }
-                    TelephonyManager.EXTRA_STATE_OFFHOOK, 
+
+                    TelephonyManager.EXTRA_STATE_OFFHOOK,
                     TelephonyManager.EXTRA_STATE_IDLE -> {
-                        // Terminate alarm if ringing stops or call is answered
-                        Log.i(TAG, "Call answered or ended. Stopping alarm player...")
+                        // Answered or ended — the user is on the phone either way.
+                        Log.i(TAG, "Call answered or ended; stopping alarm")
                         AlarmPlayer.stop()
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error in PhoneCallReceiver processing", e)
+                Log.e(TAG, "Error handling phone state change", e)
             } finally {
                 pendingResult.finish()
             }
@@ -66,82 +65,47 @@ class PhoneCallReceiver : BroadcastReceiver() {
     }
 
     private suspend fun handleRingingCall(context: Context, number: String) {
-        val database = AppDatabase.getDatabase(context)
-        val contactDao = database.contactDao()
+        val contactDao = AppDatabase.getDatabase(context).contactDao()
 
-        // 1. Direct search: does database watchlist contain this raw phone number?
-        var matchedContact = contactDao.getContactByName(number)
-
-        // 2. Secondary lookup: resolve number to Contacts name
-        if (matchedContact == null) {
-            val resolvedName = getContactNameFromNumber(context, number)
-            if (!resolvedName.isNullOrEmpty()) {
-                Log.i(TAG, "Resolved incoming number $number to contact name: $resolvedName")
-                matchedContact = contactDao.getContactByName(resolvedName)
+        // The watchlist may store the raw number, or the contact name it resolves to.
+        val matched = contactDao.getContactByName(number)
+            ?: contactNameFor(context, number)?.let { name ->
+                Log.i(TAG, "Resolved incoming number to contact '$name'")
+                contactDao.getContactByName(name)
             }
+
+        if (matched == null) {
+            Log.i(TAG, "Incoming call did not match any watched contact")
+            return
         }
 
-        if (matchedContact != null) {
-            Log.w(TAG, "LOUD ALARM: Incoming phone call matched VIP: ${matchedContact.name}")
-            
-            // Check Schedule Constraints
-            var playSound = true
-            var vibeOnly = false
+        // Presence suppression deliberately does not apply to cellular calls: a ringing
+        // phone is already audible, so only the contact's own schedule is consulted.
+        val verdict = AlarmDecision.decide(
+            contact = matched,
+            settings = SettingsRepository.current(context),
+            presence = PresenceSnapshot(),
+            minuteOfDay = ScheduleWindow.minuteOfDayNow()
+        )
+        Log.w(TAG, "VIP call from '${matched.name}' -> ${verdict.action}: ${verdict.reason}")
 
-            if (matchedContact.isScheduleEnabled) {
-                val inSchedule = isCurrentTimeInSchedule(matchedContact)
-                if (!inSchedule) {
-                    if (matchedContact.vibeOnlyOutsideSchedule) {
-                        vibeOnly = true
-                    } else {
-                        playSound = false
-                    }
-                }
-            }
-
-            if (playSound) {
-                if (vibeOnly) {
-                    AlarmPlayer.triggerVibration(context, false)
-                } else {
-                    AlarmPlayer.play(context, matchedContact)
-                }
-            }
-        } else {
-            Log.i(TAG, "Incoming call $number did not match any watched contact.")
+        when (verdict.action) {
+            AlarmAction.SILENT -> Unit
+            AlarmAction.VIBRATE_ONLY -> AlarmPlayer.triggerVibration(context, repeat = false)
+            AlarmAction.LOUD -> AlarmPlayer.play(context, matched)
         }
     }
 
-    private fun getContactNameFromNumber(context: Context, phoneNumber: String): String? {
-        try {
-            val uri = Uri.withAppendedPath(
-                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
-                Uri.encode(phoneNumber)
-            )
-            val projection = arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME)
-            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    return cursor.getString(0)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to lookup contact name for $phoneNumber", e)
-        }
-        return null
-    }
-
-    private fun isCurrentTimeInSchedule(contact: WatchedContact): Boolean {
-        val calendar = java.util.Calendar.getInstance()
-        val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
-        val minute = calendar.get(java.util.Calendar.MINUTE)
-        
-        val currentMinutes = hour * 60 + minute
-        val startMinutes = contact.startHour * 60 + contact.startMinute
-        val endMinutes = contact.endHour * 60 + contact.endMinute
-        
-        return if (startMinutes <= endMinutes) {
-            currentMinutes in startMinutes..endMinutes
-        } else {
-            currentMinutes >= startMinutes || currentMinutes <= endMinutes
-        }
+    private fun contactNameFor(context: Context, phoneNumber: String): String? = try {
+        val uri = Uri.withAppendedPath(
+            ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+            Uri.encode(phoneNumber)
+        )
+        context.contentResolver
+            .query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+    } catch (e: Exception) {
+        Log.e(TAG, "Contact lookup failed", e)
+        null
     }
 }
