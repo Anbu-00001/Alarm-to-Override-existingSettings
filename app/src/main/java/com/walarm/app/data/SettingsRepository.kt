@@ -30,6 +30,8 @@ data class AppSettings(
     val nlpThreshold: Int = 50,
     val overridePhoneCalls: Boolean = true,
     val overrideWaCalls: Boolean = true,
+    val enableInstagram: Boolean = true,
+    val overrideInstagramCalls: Boolean = true,
     val suppressOnScreenOn: Boolean = false,
     val suppressOnHomeWifi: Boolean = false,
     val homeWifiSsid: String = "",
@@ -50,6 +52,8 @@ object SettingsRepository {
         val NLP_THRESHOLD = intPreferencesKey("nlp_threshold")
         val OVERRIDE_PHONE_CALLS = booleanPreferencesKey("override_phone_calls")
         val OVERRIDE_WA_CALLS = booleanPreferencesKey("override_wa_calls")
+        val ENABLE_INSTAGRAM = booleanPreferencesKey("enable_instagram")
+        val OVERRIDE_INSTAGRAM_CALLS = booleanPreferencesKey("override_instagram_calls")
         val SUPPRESS_SCREEN_ON = booleanPreferencesKey("suppress_screen_on")
         val SUPPRESS_WIFI = booleanPreferencesKey("suppress_wifi")
         val HOME_WIFI_SSID = stringPreferencesKey("home_wifi_ssid")
@@ -69,6 +73,8 @@ object SettingsRepository {
         nlpThreshold = this[Keys.NLP_THRESHOLD] ?: defaults.nlpThreshold,
         overridePhoneCalls = this[Keys.OVERRIDE_PHONE_CALLS] ?: defaults.overridePhoneCalls,
         overrideWaCalls = this[Keys.OVERRIDE_WA_CALLS] ?: defaults.overrideWaCalls,
+        enableInstagram = this[Keys.ENABLE_INSTAGRAM] ?: defaults.enableInstagram,
+        overrideInstagramCalls = this[Keys.OVERRIDE_INSTAGRAM_CALLS] ?: defaults.overrideInstagramCalls,
         suppressOnScreenOn = this[Keys.SUPPRESS_SCREEN_ON] ?: defaults.suppressOnScreenOn,
         suppressOnHomeWifi = this[Keys.SUPPRESS_WIFI] ?: defaults.suppressOnHomeWifi,
         homeWifiSsid = this[Keys.HOME_WIFI_SSID] ?: defaults.homeWifiSsid,
@@ -82,6 +88,8 @@ object SettingsRepository {
             prefs[Keys.NLP_THRESHOLD] = settings.nlpThreshold.coerceIn(0, 100)
             prefs[Keys.OVERRIDE_PHONE_CALLS] = settings.overridePhoneCalls
             prefs[Keys.OVERRIDE_WA_CALLS] = settings.overrideWaCalls
+            prefs[Keys.ENABLE_INSTAGRAM] = settings.enableInstagram
+            prefs[Keys.OVERRIDE_INSTAGRAM_CALLS] = settings.overrideInstagramCalls
             prefs[Keys.SUPPRESS_SCREEN_ON] = settings.suppressOnScreenOn
             prefs[Keys.SUPPRESS_WIFI] = settings.suppressOnHomeWifi
             prefs[Keys.HOME_WIFI_SSID] = settings.homeWifiSsid

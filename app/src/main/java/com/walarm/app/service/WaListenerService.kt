@@ -55,8 +55,14 @@ class WaListenerService : NotificationListenerService() {
     companion object {
         private const val TAG = "WaListenerService"
 
-        /** `com.android.shell` is kept so `test_device.py` can inject synthetic notifications. */
-        private val WATCHED_PACKAGES = setOf("com.whatsapp", "com.whatsapp.w4b", "com.android.shell")
+        /** Packages monitored for emergency escalation (WhatsApp, Instagram, ADB shell testing). */
+        private val WATCHED_PACKAGES = setOf(
+            "com.whatsapp",
+            "com.whatsapp.w4b",
+            "com.instagram.android",
+            "com.instagram.lite",
+            "com.android.shell"
+        )
 
         /** Wake lock budget for processing a single notification. */
         private const val PROCESSING_WAKELOCK_MS = 15_000L
@@ -228,13 +234,25 @@ class WaListenerService : NotificationListenerService() {
     }
 
     private suspend fun process(sbn: StatusBarNotification) {
-        val parsed = NotificationParser.parse(sbn) ?: return
         val settings = SettingsRepository.current(applicationContext)
 
-        val isCall = isCallNotification(sbn, parsed.message)
-        if (isCall && !settings.overrideWaCalls) {
-            Log.d(TAG, "WhatsApp call ignored — override_wa_calls is off")
+        val isInstagram = sbn.packageName in setOf("com.instagram.android", "com.instagram.lite")
+        if (isInstagram && !settings.enableInstagram) {
+            Log.d(TAG, "Instagram notification ignored — enableInstagram is off")
             return
+        }
+
+        val parsed = NotificationParser.parse(sbn) ?: return
+
+        val isCall = isCallNotification(sbn, parsed.message)
+        if (isCall) {
+            if (isInstagram && !settings.overrideInstagramCalls) {
+                Log.d(TAG, "Instagram call ignored — overrideInstagramCalls is off")
+                return
+            } else if (!isInstagram && !settings.overrideWaCalls) {
+                Log.d(TAG, "WhatsApp call ignored — override_wa_calls is off")
+                return
+            }
         }
 
         val contactDao = database.contactDao()
