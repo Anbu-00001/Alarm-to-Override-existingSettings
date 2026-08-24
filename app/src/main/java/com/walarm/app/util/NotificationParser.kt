@@ -15,7 +15,8 @@ object NotificationParser {
         val rawTitle: String?,
         val rawText: String?,
         val rawSubText: String?,
-        val rawConversationTitle: String?
+        val rawConversationTitle: String?,
+        val packageName: String = ""
     )
 
     private val parsers: List<AppNotificationParser> = listOf(
@@ -35,6 +36,6 @@ object NotificationParser {
             return null
         }
 
-        return parser.parse(sbn)
+        return parser.parse(sbn)?.copy(packageName = packageName)
     }
 }

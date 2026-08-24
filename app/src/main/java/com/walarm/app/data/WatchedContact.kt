@@ -25,5 +25,10 @@ data class WatchedContact(
 
     // Keyword override for group / chats
     val isKeywordFilterEnabled: Boolean = false,
-    val keywords: String = "urgent,help,emergency,call me" // Comma-separated
-)
+    val keywords: String = "urgent,help,emergency,call me", // Comma-separated
+
+    // Multi-App Platform Filtering (ALL, WHATSAPP, INSTAGRAM)
+    val targetApp: String = "ALL"
+) {
+    val targetAppEnum: TargetApp get() = TargetApp.fromString(targetApp)
+}

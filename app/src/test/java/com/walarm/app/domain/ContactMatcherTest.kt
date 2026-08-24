@@ -46,4 +46,23 @@ class ContactMatcherTest {
         val subject = contact(enabled = true, keywords = "urgent,emergency")
         assertFalse(ContactMatcher.matchesKeywords(subject, "see you at dinner"))
     }
+
+    @Test
+    fun `targetApp matching filters packages correctly`() {
+        val waContact = WatchedContact(id = 1, name = "Alice", targetApp = "WHATSAPP")
+        val igContact = WatchedContact(id = 2, name = "Bob", targetApp = "INSTAGRAM")
+        val allContact = WatchedContact(id = 3, name = "Charlie", targetApp = "ALL")
+
+        assertTrue(ContactMatcher.matchesApp(waContact, "com.whatsapp"))
+        assertTrue(ContactMatcher.matchesApp(waContact, "com.whatsapp.w4b"))
+        assertFalse(ContactMatcher.matchesApp(waContact, "com.instagram.android"))
+
+        assertTrue(ContactMatcher.matchesApp(igContact, "com.instagram.android"))
+        assertTrue(ContactMatcher.matchesApp(igContact, "com.instagram.lite"))
+        assertFalse(ContactMatcher.matchesApp(igContact, "com.whatsapp"))
+
+        assertTrue(ContactMatcher.matchesApp(allContact, "com.whatsapp"))
+        assertTrue(ContactMatcher.matchesApp(allContact, "com.instagram.android"))
+        assertTrue(ContactMatcher.matchesApp(allContact, "com.android.shell"))
+    }
 }

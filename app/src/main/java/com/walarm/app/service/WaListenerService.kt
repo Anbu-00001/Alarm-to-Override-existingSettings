@@ -258,7 +258,7 @@ class WaListenerService : NotificationListenerService() {
         val contactDao = database.contactDao()
         val watched = ContactMatcher.findWatched(contactDao, parsed)
         val keywordMatch = if (watched == null) {
-            ContactMatcher.findKeywordMatch(contactDao, parsed.message)
+            ContactMatcher.findKeywordMatch(contactDao, parsed.message, parsed.packageName)
         } else {
             null
         }
@@ -418,7 +418,14 @@ class WaListenerService : NotificationListenerService() {
 
 private const val TRANSIENT_COOLDOWN_SECONDS = 30
 
-private val CALL_HINTS = listOf("voice call", "video call", "incoming call")
+private val CALL_HINTS = listOf(
+    "voice call",
+    "video call",
+    "incoming call",
+    "incoming audio call",
+    "incoming video call",
+    "is calling"
+)
 
 /**
  * REASON_* values that mean *the user* got rid of the notification.

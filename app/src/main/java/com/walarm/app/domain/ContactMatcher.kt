@@ -29,13 +29,39 @@ object ContactMatcher {
         dao: ContactDao,
         parsed: NotificationParser.ParsedNotification
     ): WatchedContact? {
-        resolve(dao, parsed.sender)?.let { return it }
+        val candidate = resolve(dao, parsed.sender) ?: if (parsed.isGroup) {
+            parsed.individualSender?.let { resolve(dao, it) }
+        } else null
 
-        if (parsed.isGroup) {
-            parsed.individualSender?.let { individual -> resolve(dao, individual)?.let { return it } }
+        if (candidate != null && matchesApp(candidate, parsed.packageName)) {
+            return candidate
         }
 
-        return null
+        // If direct DB query candidate failed targetApp filter, evaluate all contacts
+        val allContacts = dao.getAllContacts()
+        val senderLower = parsed.sender.trim().lowercase()
+        val individualLower = parsed.individualSender?.trim()?.lowercase()
+
+        return allContacts.firstOrNull { contact ->
+            matchesApp(contact, parsed.packageName) && isNameMatch(contact, senderLower, individualLower)
+        }
+    }
+
+    private fun isNameMatch(contact: WatchedContact, senderLower: String, individualLower: String?): Boolean {
+        val cName = contact.name.trim().lowercase()
+        if (cName.isEmpty()) return false
+
+        if (cName == senderLower) return true
+        if (individualLower != null && cName == individualLower) return true
+
+        if (cName.length >= MIN_FUZZY_LENGTH && senderLower.length >= MIN_FUZZY_LENGTH) {
+            if (senderLower.contains(cName) || cName.contains(senderLower)) return true
+        }
+        if (individualLower != null && cName.length >= MIN_FUZZY_LENGTH && individualLower.length >= MIN_FUZZY_LENGTH) {
+            if (individualLower.contains(cName) || cName.contains(individualLower)) return true
+        }
+
+        return false
     }
 
     private suspend fun resolve(dao: ContactDao, candidate: String): WatchedContact? {
@@ -49,9 +75,21 @@ object ContactMatcher {
     }
 
     /** First watchlist entry whose keyword filter matches [message], if any. */
-    suspend fun findKeywordMatch(dao: ContactDao, message: String): WatchedContact? {
+    suspend fun findKeywordMatch(
+        dao: ContactDao,
+        message: String,
+        packageName: String = ""
+    ): WatchedContact? {
         if (message.isBlank()) return null
-        return dao.getAllContacts().firstOrNull { matchesKeywords(it, message) }
+        return dao.getAllContacts().firstOrNull { contact ->
+            matchesApp(contact, packageName) && matchesKeywords(contact, message)
+        }
+    }
+
+    /** App target validation: matches if contact's targetApp is ALL or matches target package. */
+    fun matchesApp(contact: WatchedContact, packageName: String): Boolean {
+        if (packageName.isBlank() || packageName == "com.android.shell") return true
+        return contact.targetAppEnum.matchesPackage(packageName)
     }
 
     /** Pure keyword test, split out so it can be unit tested without a database. */

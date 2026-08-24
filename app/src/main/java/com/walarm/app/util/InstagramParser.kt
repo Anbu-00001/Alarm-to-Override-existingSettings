@@ -51,9 +51,11 @@ object InstagramParser : AppNotificationParser {
         if (rawTitle.isNullOrEmpty()) return null
 
         val fullText = "$rawTitle $rawText $rawSubText ${rawConversationTitle ?: ""}".lowercase()
+        val isCallNotification = sbn.notification.category == Notification.CATEGORY_CALL ||
+                fullText.contains("call") || fullText.contains("calling")
 
-        // 1. Social Noise Filter: Rejection of non-DM engagement alerts
-        if (SOCIAL_NOISE_PATTERNS.any { fullText.contains(it) }) {
+        // 1. Social Noise Filter: Rejection of non-DM engagement alerts (bypassed for calls)
+        if (!isCallNotification && SOCIAL_NOISE_PATTERNS.any { fullText.contains(it) }) {
             Log.d(TAG, "Instagram notification discarded (social noise): title=$rawTitle | text=$rawText")
             return null
         }

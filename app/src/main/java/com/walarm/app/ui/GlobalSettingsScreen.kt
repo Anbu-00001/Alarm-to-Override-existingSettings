@@ -167,6 +167,40 @@ fun GlobalSettingsScreen(
                     )
                 }
 
+                // Instagram DM Interception
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Enable Instagram DM Interception 📸", color = Color.White, fontSize = 14.sp)
+                        Text("Filters social noise (likes/comments) and alarms only on direct messages", color = Color.Gray, fontSize = 11.sp, lineHeight = 14.sp)
+                    }
+                    Switch(
+                        checked = settings.enableInstagram,
+                        onCheckedChange = { onSettingsChange(settings.copy(enableInstagram = it)) },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFFC13584))
+                    )
+                }
+
+                // Instagram Call Override
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Override Instagram Calls", color = Color.White, fontSize = 14.sp)
+                        Text("Triggers loud repeating alarm on incoming Instagram audio/video calls", color = Color.Gray, fontSize = 11.sp, lineHeight = 14.sp)
+                    }
+                    Switch(
+                        checked = settings.overrideInstagramCalls,
+                        onCheckedChange = { onSettingsChange(settings.copy(overrideInstagramCalls = it)) },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFFC13584))
+                    )
+                }
+
                 // Phone Call Override
                 Row(
                     modifier = Modifier.fillMaxWidth(),

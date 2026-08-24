@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.walarm.app.alarm.AlarmPlayer
+import com.walarm.app.data.TargetApp
 import com.walarm.app.data.WatchedContact
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -48,9 +49,15 @@ fun WatchlistScreen(
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var editingContact by remember { mutableStateOf<WatchedContact?>(null) }
+    var selectedFilterApp by remember { mutableStateOf<TargetApp?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var testingContactId by remember { mutableStateOf<Long?>(null) }
+
+    val filteredContacts = remember(contacts, selectedFilterApp) {
+        if (selectedFilterApp == null) contacts
+        else contacts.filter { it.targetAppEnum == selectedFilterApp || it.targetAppEnum == TargetApp.ALL }
+    }
 
     Box(
         modifier = Modifier
@@ -83,37 +90,81 @@ fun WatchlistScreen(
                 )
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(contacts, key = { it.id }) { contact ->
-                    ContactRow(
-                        contact = contact,
-                        isTesting = testingContactId == contact.id,
-                        onEdit = { editingContact = contact },
-                        onDelete = { onDeleteContact(contact) },
-                        onTest = {
-                            if (testingContactId == contact.id) {
-                                AlarmPlayer.stop()
-                                testingContactId = null
-                            } else {
-                                AlarmPlayer.stop()
-                                testingContactId = contact.id
-                                AlarmPlayer.play(context, contact)
-                                scope.launch {
-                                    delay(4000) // Auto stop test after 4 seconds
-                                    if (testingContactId == contact.id) {
-                                        AlarmPlayer.stop()
-                                        testingContactId = null
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = selectedFilterApp == null,
+                        onClick = { selectedFilterApp = null },
+                        label = { Text("All Targets", fontSize = 12.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF6200EE),
+                            selectedLabelColor = Color.White,
+                            containerColor = Color.White.copy(alpha = 0.05f),
+                            labelColor = Color.LightGray
+                        )
+                    )
+                    FilterChip(
+                        selected = selectedFilterApp == TargetApp.WHATSAPP,
+                        onClick = { selectedFilterApp = if (selectedFilterApp == TargetApp.WHATSAPP) null else TargetApp.WHATSAPP },
+                        label = { Text("WhatsApp 💬", fontSize = 12.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF25D366),
+                            selectedLabelColor = Color.White,
+                            containerColor = Color.White.copy(alpha = 0.05f),
+                            labelColor = Color.LightGray
+                        )
+                    )
+                    FilterChip(
+                        selected = selectedFilterApp == TargetApp.INSTAGRAM,
+                        onClick = { selectedFilterApp = if (selectedFilterApp == TargetApp.INSTAGRAM) null else TargetApp.INSTAGRAM },
+                        label = { Text("Instagram 📸", fontSize = 12.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFFC13584),
+                            selectedLabelColor = Color.White,
+                            containerColor = Color.White.copy(alpha = 0.05f),
+                            labelColor = Color.LightGray
+                        )
+                    )
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(filteredContacts, key = { it.id }) { contact ->
+                        ContactRow(
+                            contact = contact,
+                            isTesting = testingContactId == contact.id,
+                            onEdit = { editingContact = contact },
+                            onDelete = { onDeleteContact(contact) },
+                            onTest = {
+                                if (testingContactId == contact.id) {
+                                    AlarmPlayer.stop()
+                                    testingContactId = null
+                                } else {
+                                    AlarmPlayer.stop()
+                                    testingContactId = contact.id
+                                    AlarmPlayer.play(context, contact)
+                                    scope.launch {
+                                        delay(4000) // Auto stop test after 4 seconds
+                                        if (testingContactId == contact.id) {
+                                            AlarmPlayer.stop()
+                                            testingContactId = null
+                                        }
                                     }
                                 }
                             }
-                        }
-                    )
-                }
-                item {
-                    Spacer(modifier = Modifier.height(80.dp)) // padding for FAB
+                        )
+                    }
+                    item {
+                        Spacer(modifier = Modifier.height(80.dp)) // padding for FAB
+                    }
                 }
             }
         }
@@ -194,6 +245,11 @@ fun ContactRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    when (contact.targetAppEnum) {
+                        TargetApp.WHATSAPP -> BadgeLabel("WhatsApp 💬", Color(0xFF25D366))
+                        TargetApp.INSTAGRAM -> BadgeLabel("Instagram 📸", Color(0xFFC13584))
+                        TargetApp.ALL -> BadgeLabel("All Apps 🌐", Color(0xFF985EFF))
+                    }
                     if (contact.repeatUntilDismissed) {
                         BadgeLabel("VIP Loop", Color(0xFFFF3B30))
                     }
@@ -288,6 +344,9 @@ fun ContactDialog(
     var isKeywordFilterEnabled by remember { mutableStateOf(contact?.isKeywordFilterEnabled ?: false) }
     var keywords by remember { mutableStateOf(contact?.keywords ?: "urgent,help,emergency,call me") }
 
+    // Multi-App Platform state
+    var targetApp by remember { mutableStateOf(contact?.targetAppEnum ?: TargetApp.ALL) }
+
     // Ringtone picker launcher
     val ringtonePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -368,6 +427,34 @@ fun ContactDialog(
                         onCheckedChange = { isGroup = it },
                         colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF985EFF))
                     )
+                }
+
+                // Target App Selector
+                Column {
+                    Text("Target Messaging Platform", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TargetApp.values().forEach { app ->
+                            FilterChip(
+                                selected = targetApp == app,
+                                onClick = { targetApp = app },
+                                label = { Text(app.displayName, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = when (app) {
+                                        TargetApp.ALL -> Color(0xFF985EFF)
+                                        TargetApp.WHATSAPP -> Color(0xFF25D366)
+                                        TargetApp.INSTAGRAM -> Color(0xFFC13584)
+                                    },
+                                    selectedLabelColor = Color.White,
+                                    containerColor = Color.White.copy(alpha = 0.05f),
+                                    labelColor = Color.LightGray
+                                )
+                            )
+                        }
+                    }
                 }
 
                 Divider(color = Color.White.copy(alpha = 0.1f))
@@ -614,7 +701,8 @@ fun ContactDialog(
                                     endMinute = endMinute,
                                     vibeOnlyOutsideSchedule = vibeOnlyOutsideSchedule,
                                     isKeywordFilterEnabled = isKeywordFilterEnabled,
-                                    keywords = keywords.trim()
+                                    keywords = keywords.trim(),
+                                    targetApp = targetApp.name
                                 )
                                 onSave(updated)
                             }

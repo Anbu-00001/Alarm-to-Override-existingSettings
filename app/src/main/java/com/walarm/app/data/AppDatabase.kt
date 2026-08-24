@@ -5,13 +5,22 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [WatchedContact::class, DebugLog::class], version = 3, exportSchema = false)
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+
+@Database(entities = [WatchedContact::class, DebugLog::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun contactDao(): ContactDao
     abstract fun debugLogDao(): DebugLogDao
 
     companion object {
         private const val DATABASE_NAME = "zalarm_database"
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE watched_contacts ADD COLUMN targetApp TEXT NOT NULL DEFAULT 'ALL'")
+            }
+        }
 
         @Volatile
         private var INSTANCE: AppDatabase? = null
@@ -23,11 +32,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    // Scoped to the pre-release schemas only. A blanket
-                    // fallbackToDestructiveMigration() silently wipes the user's entire
-                    // watchlist on any future schema bump — for an app whose whole job is
-                    // to alarm on specific people, that is a silent, total failure.
-                    // Future versions must ship a real Migration instead.
+                    .addMigrations(MIGRATION_3_4)
                     .fallbackToDestructiveMigrationFrom(1, 2)
                     .build()
                     .also { INSTANCE = it }

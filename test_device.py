@@ -247,6 +247,33 @@ def test_nonvip_ignored():
     return not active
 
 
+def test_instagram_dm_vip():
+    """VIP contact DM via Instagram → alarm should trigger."""
+    tag = unique_tag()
+    set_screen("ON")
+    adb("shell input keyevent 82")  # unlock
+    time.sleep(1)
+
+    adb(f'shell cmd notification post -p com.instagram.android -t "Ganesan" -S bigtext {tag} "Urgent Instagram message!"')
+    
+    active = poll_for_alarm_activity(8.0)
+    dismiss_alarm()
+    return active
+
+
+def test_instagram_social_noise_ignored():
+    """Instagram social noise notification ("liked your photo") → alarm should NOT trigger."""
+    tag = unique_tag()
+    set_screen("ON")
+    time.sleep(1)
+
+    adb(f'shell cmd notification post -p com.instagram.android -t "Ganesan" -S bigtext {tag} "Ganesan liked your photo"')
+    
+    active = poll_for_alarm_activity(4.0)
+    dismiss_alarm()
+    return not active
+
+
 # ── RUNNER ──────────────────────────────────────────────────
 
 def run(label, fn):
@@ -274,10 +301,12 @@ def main():
 
     # Phase 3 — run tests (listener stays alive throughout)
     results = []
-    results.append(run("1. VIP DM — Screen ON",           test_vip_dm_screen_on))
-    results.append(run("2. VIP DM — Screen OFF",          test_vip_dm_screen_off))
-    results.append(run("3. Group VIP — Screen OFF",        test_group_vip_screen_off))
-    results.append(run("4. Non-VIP — Screen OFF (ignore)", test_nonvip_ignored))
+    results.append(run("1. VIP DM — Screen ON",                   test_vip_dm_screen_on))
+    results.append(run("2. VIP DM — Screen OFF",                  test_vip_dm_screen_off))
+    results.append(run("3. Group VIP — Screen OFF",                test_group_vip_screen_off))
+    results.append(run("4. Non-VIP — Screen OFF (ignore)",         test_nonvip_ignored))
+    results.append(run("5. Instagram VIP DM — Screen ON",          test_instagram_dm_vip))
+    results.append(run("6. Instagram Social Noise (ignore)",       test_instagram_social_noise_ignored))
 
     # Phase 4 — summary
     passed = sum(results)
