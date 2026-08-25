@@ -1,6 +1,7 @@
 package com.walarm.app.domain
 
 import com.walarm.app.data.ContactDao
+import com.walarm.app.data.TargetApp
 import com.walarm.app.data.WatchedContact
 import com.walarm.app.util.NotificationParser
 
@@ -15,6 +16,12 @@ enum class TriggerSource { WATCHLIST, KEYWORD, URGENCY }
  *  2. Fuzzy/contains match on the parsed sender.
  *  3. Exact match on the individual sender inside a group.
  *  4. Fuzzy/contains match on that individual sender.
+ *
+ * Every tier is a single indexed SQL query with the per-contact app filter applied in the
+ * `WHERE` clause. That filter used to be applied in Kotlin *after* the query, with a full
+ * table scan and a second hand-written matcher as the fallback — two engines that
+ * disagreed on tie-breaking (SQL preferred the longest, i.e. most specific, name; the
+ * Kotlin fallback took whatever sorted first alphabetically).
  */
 object ContactMatcher {
 
@@ -29,67 +36,67 @@ object ContactMatcher {
         dao: ContactDao,
         parsed: NotificationParser.ParsedNotification
     ): WatchedContact? {
-        val candidate = resolve(dao, parsed.sender) ?: if (parsed.isGroup) {
-            parsed.individualSender?.let { resolve(dao, it) }
-        } else null
+        val appKey = TargetApp.forPackage(parsed.packageName)?.name
 
-        if (candidate != null && matchesApp(candidate, parsed.packageName)) {
-            return candidate
+        resolve(dao, parsed.sender, appKey)?.let { return it }
+
+        if (parsed.isGroup) {
+            parsed.individualSender?.let { individual ->
+                resolve(dao, individual, appKey)?.let { return it }
+            }
         }
 
-        // If direct DB query candidate failed targetApp filter, evaluate all contacts
-        val allContacts = dao.getAllContacts()
-        val senderLower = parsed.sender.trim().lowercase()
-        val individualLower = parsed.individualSender?.trim()?.lowercase()
-
-        return allContacts.firstOrNull { contact ->
-            matchesApp(contact, parsed.packageName) && isNameMatch(contact, senderLower, individualLower)
-        }
+        return null
     }
 
-    private fun isNameMatch(contact: WatchedContact, senderLower: String, individualLower: String?): Boolean {
-        val cName = contact.name.trim().lowercase()
-        if (cName.isEmpty()) return false
-
-        if (cName == senderLower) return true
-        if (individualLower != null && cName == individualLower) return true
-
-        if (cName.length >= MIN_FUZZY_LENGTH && senderLower.length >= MIN_FUZZY_LENGTH) {
-            if (senderLower.contains(cName) || cName.contains(senderLower)) return true
-        }
-        if (individualLower != null && cName.length >= MIN_FUZZY_LENGTH && individualLower.length >= MIN_FUZZY_LENGTH) {
-            if (individualLower.contains(cName) || cName.contains(individualLower)) return true
-        }
-
-        return false
-    }
-
-    private suspend fun resolve(dao: ContactDao, candidate: String): WatchedContact? {
+    /**
+     * @param appKey the [TargetApp] name to filter on, or null to skip app filtering
+     *   (ADB-injected test notifications, which must be able to reach any contact).
+     */
+    private suspend fun resolve(dao: ContactDao, candidate: String, appKey: String?): WatchedContact? {
         val name = candidate.trim()
         if (name.isEmpty()) return null
 
-        dao.getContactByName(name)?.let { return it }
+        val exact = if (appKey == null) {
+            dao.getContactByName(name)
+        } else {
+            dao.getContactByNameForApp(name, appKey)
+        }
+        if (exact != null) return exact
+
         if (name.length < MIN_FUZZY_LENGTH) return null
 
-        return dao.getContactByNameFuzzy(name)
+        return if (appKey == null) {
+            dao.getContactByNameFuzzy(name)
+        } else {
+            dao.getContactByNameFuzzyForApp(name, appKey)
+        }
     }
 
     /** First watchlist entry whose keyword filter matches [message], if any. */
     suspend fun findKeywordMatch(
         dao: ContactDao,
         message: String,
-        packageName: String = ""
+        packageName: String
     ): WatchedContact? {
         if (message.isBlank()) return null
-        return dao.getAllContacts().firstOrNull { contact ->
-            matchesApp(contact, packageName) && matchesKeywords(contact, message)
-        }
+
+        val appKey = TargetApp.forPackage(packageName)?.name
+        val candidates = if (appKey == null) dao.getAllContacts() else dao.getContactsForApp(appKey)
+
+        return candidates.firstOrNull { matchesKeywords(it, message) }
     }
 
-    /** App target validation: matches if contact's targetApp is ALL or matches target package. */
+    /**
+     * Whether [contact] accepts notifications from [packageName].
+     *
+     * Kept as a pure helper for tests and for callers that already hold the contact.
+     * An untracked package (notably the ADB shell) matches every contact.
+     */
     fun matchesApp(contact: WatchedContact, packageName: String): Boolean {
-        if (packageName.isBlank() || packageName == "com.android.shell") return true
-        return contact.targetAppEnum.matchesPackage(packageName)
+        val app = TargetApp.forPackage(packageName) ?: return true
+        val target = contact.targetAppEnum
+        return target == TargetApp.ALL || target == app
     }
 
     /** Pure keyword test, split out so it can be unit tested without a database. */

@@ -3,8 +3,14 @@ package com.walarm.app.util
 import android.service.notification.StatusBarNotification
 import android.util.Log
 
+/**
+ * Routes a notification to the parser that understands its package.
+ */
 object NotificationParser {
     private const val TAG = "NotificationParser"
+
+    /** ADB-injected test notifications arrive under the shell package. */
+    const val SHELL_PACKAGE = "com.android.shell"
 
     data class ParsedNotification(
         val sender: String, // Contact or Group Name
@@ -16,26 +22,26 @@ object NotificationParser {
         val rawText: String?,
         val rawSubText: String?,
         val rawConversationTitle: String?,
-        val packageName: String = ""
+        /**
+         * Originating package. Required rather than defaulted: it drives per-contact app
+         * filtering, and a silent "" default there means "matches every app".
+         */
+        val packageName: String
     )
 
-    private val parsers: List<AppNotificationParser> = listOf(
-        WhatsAppParser,
-        InstagramParser
-    )
+    private val parsers: List<AppNotificationParser> = listOf(WhatsAppParser, InstagramParser)
 
     fun parse(sbn: StatusBarNotification): ParsedNotification? {
         val packageName = sbn.packageName
-        
-        // Find matching parser by package name
+
         val parser = parsers.firstOrNull { packageName in it.supportedPackages }
-            ?: if (packageName == "com.android.shell") WhatsAppParser else null
+            ?: if (packageName == SHELL_PACKAGE) WhatsAppParser else null
 
         if (parser == null) {
             Log.d(TAG, "No parser registered for package: $packageName")
             return null
         }
 
-        return parser.parse(sbn)?.copy(packageName = packageName)
+        return parser.parse(sbn)
     }
 }
