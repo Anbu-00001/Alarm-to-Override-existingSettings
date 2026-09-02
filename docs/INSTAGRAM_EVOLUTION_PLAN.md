@@ -92,7 +92,7 @@ graph TD
 
 ## 🗺️ Phased Implementation Roadmap
 
-### 🎯 Phase 1: Core Multi-App Architecture & Instagram Parser Engine *(CURRENT IMPLEMENTATION)*
+### 🎯 Phase 1: Core Multi-App Architecture & Instagram Parser Engine *(COMPLETED)*
 - Refactor notification parsing into pluggable `AppNotificationParser` interface.
 - Implement `WhatsAppParser` and `InstagramParser`.
 - Add Instagram social noise detection algorithm (filtering likes, comments, live streams, reels).
@@ -101,16 +101,17 @@ graph TD
 - Add Instagram support toggles in `AppSettings` (`enableInstagram`, `overrideInstagramCalls`).
 - Write comprehensive unit tests for `InstagramParser` validating DM detection vs noise rejection.
 
-### 🎨 Phase 2: App-Aware UI & Multi-App Contact Watchlist
+### 🎨 Phase 2: App-Aware UI & Multi-App Contact Watchlist *(COMPLETED)*
 - Extend `WatchedContact` Room database schema with `targetApp` field (`ALL`, `WHATSAPP`, `INSTAGRAM`).
 - Update Jetpack Compose Watchlist & Settings screens with platform toggles and app icons.
 - Support app-specific contact filtering and search.
 
-### 🔊 Phase 3: Instagram Call Escalation & Presence Integration
+### 🔊 Phase 3: Instagram Call Escalation & Presence Integration *(COMPLETED)*
 - Add dedicated Instagram Call detection logic for `CATEGORY_CALL` and incoming audio/video calls.
 - Integrate `PresenceHelper` and `UrgencyClassifier` for Instagram DMs.
 
-### 🧪 Phase 4: E2E ADB Harness Expansion & Device Validation
-- Extend `test_device.py` ADB automation script to test Instagram direct message triggers, lockscreen wakeups, and quick reply verification.
+### 🧪 Phase 4: E2E ADB Harness Expansion & Device Validation *(COMPLETED)*
+- Extend `test_device.py` ADB automation script to test Instagram direct message triggers, call escalation, lockscreen wakeups, and noise rejection.
+- Expanded unit test suite (`InstagramDmClassifierTest`, `InstagramParserTest`) covering all classification edge cases.
 
 ---

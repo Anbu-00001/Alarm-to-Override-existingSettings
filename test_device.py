@@ -274,6 +274,20 @@ def test_instagram_social_noise_ignored():
     return not active
 
 
+def test_instagram_call_vip():
+    """VIP contact Instagram video call notification → alarm should trigger."""
+    tag = unique_tag()
+    set_screen("ON")
+    adb("shell input keyevent 82")  # unlock
+    time.sleep(1)
+
+    adb(f'shell cmd notification post -p com.instagram.android -t "Ganesan" -S bigtext {tag} "Incoming video call from Ganesan"')
+    
+    active = poll_for_alarm_activity(8.0)
+    dismiss_alarm()
+    return active
+
+
 # ── RUNNER ──────────────────────────────────────────────────
 
 def run(label, fn):
@@ -307,6 +321,7 @@ def main():
     results.append(run("4. Non-VIP — Screen OFF (ignore)",         test_nonvip_ignored))
     results.append(run("5. Instagram VIP DM — Screen ON",          test_instagram_dm_vip))
     results.append(run("6. Instagram Social Noise (ignore)",       test_instagram_social_noise_ignored))
+    results.append(run("7. Instagram VIP Call — Screen ON",        test_instagram_call_vip))
 
     # Phase 4 — summary
     passed = sum(results)
